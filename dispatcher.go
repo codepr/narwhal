@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -8,36 +9,75 @@ import (
 )
 
 const (
-	PORT                = ":28919"
-	HEALTHCHECK_TIMEOUT = 1
+	roundRobin = iota
+)
+
+const (
+	port                = ":28919"
+	healthcheck_timeout = 1
+	balancing           = roundRobin
 )
 
 var mux *http.ServeMux = http.NewServeMux()
+var commitsCh chan *commit
 
 // Just the URL of the testing machines for now
-type TestRunner struct {
-	URL   string `json: "url"`
-	Alive bool
+type testRunner struct {
+	URL   string `json:"url"`
+	Alive bool   `json:"alive"`
 }
 
-type Commit struct {
-	Id         string `json: "id"`
-	Repository string `json: "repository"`
-	CTime      time.Time
+type commit struct {
+	Id         string `json:"id"`
+	Repository string `json:"repository"`
+	cTime      time.Time
 }
 
 // Temporary database, should be replaced with a real DB, like sqlite
 // Just carry a mapping of repository -> latest commit processed and an array
 // of TestRunner servers
-type Store struct {
-	Runners      []TestRunner
-	Repositories map[string]*Commit
+type store struct {
+	runners      []testRunner
+	repositories map[string]*commit
 }
 
-var repoStore = Store{[]TestRunner{}, map[string]*Commit{}}
+var repoStore = store{[]testRunner{}, map[string]*commit{}}
 
-func (s *Store) SendToTestRunner(c *Commit) {
+func (s *store) enqueueForTest(c *commit) {
 	log.Println("Sending commit ", c)
+	commitsCh <- c
+}
+
+func pushCommitToRunner(commitsCh chan *commit) {
+	var counter int = 0
+	var index int = 0
+	for {
+		select {
+		case commit := <-commitsCh:
+			runners := len(repoStore.runners)
+			if runners == 0 {
+				log.Println("No runners available")
+				continue
+			}
+			if balancing == roundRobin {
+				for index = counter % runners; repoStore.runners[index].Alive == false; {
+					index = counter % runners
+					counter++
+				}
+			}
+			payload, err := json.Marshal(commit)
+			if err != nil {
+				log.Println("Unable to marshal", commit)
+				continue
+			}
+			log.Println("Sending commit to %i runner", index)
+			_, err = http.Post(repoStore.runners[index].URL+"/repository", "application/json", bytes.NewBuffer(payload))
+			if err != nil {
+				log.Println("Unable to send test to runner")
+				continue
+			}
+		}
+	}
 }
 
 // Simple middleware to log method and path
@@ -55,21 +95,21 @@ func handleCommit(w http.ResponseWriter, r *http.Request) {
 		// received commit is elegible for a test-run of it's already been
 		// processed before
 		decoder := json.NewDecoder(r.Body)
-		var c Commit
+		var c commit
 		err := decoder.Decode(&c)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 		}
-		c.CTime = time.Now()
-		if _, ok := repoStore.Repositories[c.Repository]; ok {
-			if repoStore.Repositories[c.Repository].Id != c.Id {
+		c.cTime = time.Now()
+		if _, ok := repoStore.repositories[c.Repository]; ok {
+			if repoStore.repositories[c.Repository].Id != c.Id {
 				log.Println("New commit received, enqueuing work to test runner")
-				repoStore.Repositories[c.Repository] = &c
-				repoStore.SendToTestRunner(&c)
+				repoStore.repositories[c.Repository] = &c
+				repoStore.enqueueForTest(&c)
 			}
 		} else {
-			repoStore.Repositories[c.Repository] = &c
-			repoStore.SendToTestRunner(&c)
+			repoStore.repositories[c.Repository] = &c
+			repoStore.enqueueForTest(&c)
 		}
 	default:
 		// 400 for unwanted HTTP methods
@@ -82,17 +122,17 @@ func handleTestRunner(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		// Return a list of already registered testrunners
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(repoStore.Runners)
+		json.NewEncoder(w).Encode(repoStore.runners)
 	case http.MethodPost:
 		// Register a new testrunner
 		decoder := json.NewDecoder(r.Body)
-		var t TestRunner
+		var t testRunner
 		err := decoder.Decode(&t)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 		}
 		t.Alive = true
-		repoStore.Runners = append(repoStore.Runners, t)
+		repoStore.runners = append(repoStore.runners, t)
 	default:
 		// 400 for unwanted HTTP methods
 		w.WriteHeader(http.StatusBadRequest)
@@ -100,9 +140,10 @@ func handleTestRunner(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	commitsCh = make(chan *commit)
 	hc := make(chan bool)
-	ticker := time.NewTicker(HEALTHCHECK_TIMEOUT * time.Second)
-	// Start a goroutine to perform basic healthchecks on testrunners
+	ticker := time.NewTicker(healthcheck_timeout * time.Second)
+	// Run a goroutine to perform basic healthcheck on testrunners
 	go func() {
 		for {
 			select {
@@ -110,7 +151,7 @@ func main() {
 				ticker.Stop()
 				return
 			case <-ticker.C:
-				for _, t := range repoStore.Runners {
+				for _, t := range repoStore.runners {
 					res, err := http.Get(t.URL + "/status")
 					if err != nil || res.StatusCode != 200 {
 						t.Alive = false
@@ -119,10 +160,11 @@ func main() {
 			}
 		}
 	}()
+	go pushCommitToRunner(commitsCh)
 	http.HandleFunc("/testrunner", reqLog(handleTestRunner))
 	http.HandleFunc("/commit", reqLog(handleCommit))
-	log.Println("Listening on", PORT)
-	log.Fatal(http.ListenAndServe(PORT, nil))
+	log.Println("Listening on", port)
+	log.Fatal(http.ListenAndServe(port, nil))
 	// Stop the healthcheck goroutine
 	hc <- true
 }
