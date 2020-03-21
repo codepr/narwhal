@@ -7,13 +7,17 @@ import (
 	"time"
 )
 
-const PORT = ":28919"
+const (
+	PORT                = ":28919"
+	HEALTHCHECK_TIMEOUT = 1
+)
 
 var mux *http.ServeMux = http.NewServeMux()
 
 // Just the URL of the testing machines for now
 type TestRunner struct {
-	URL string `json: "url"`
+	URL   string `json: "url"`
+	Alive bool
 }
 
 type Commit struct {
@@ -89,6 +93,7 @@ func handleTestRunner(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			panic(err)
 		}
+		t.Alive = true
 		repoStore.Runners = append(repoStore.Runners, t)
 	default:
 		// 400 for unwanted HTTP methods
@@ -97,8 +102,29 @@ func handleTestRunner(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	hc := make(chan bool)
+	ticker := time.NewTicker(HEALTHCHECK_TIMEOUT * time.Second)
+	// Start a goroutine to perform basic healthchecks on testrunners
+	go func() {
+		for {
+			select {
+			case <-hc:
+				ticker.Stop()
+				return
+			case <-ticker.C:
+				for _, t := range repoStore.Runners {
+					res, err := http.Get(t.URL + "/status")
+					if err != nil || res.StatusCode != 200 {
+						t.Alive = false
+					}
+				}
+			}
+		}
+	}()
 	http.HandleFunc("/testrunner", reqLog(handleTestRunner))
 	http.HandleFunc("/commit", reqLog(handleCommit))
 	log.Println("Listening on", PORT)
 	log.Fatal(http.ListenAndServe(PORT, nil))
+	// Stop the healthcheck goroutine
+	hc <- true
 }
