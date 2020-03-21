@@ -57,9 +57,8 @@ func handleCommit(w http.ResponseWriter, r *http.Request) {
 		decoder := json.NewDecoder(r.Body)
 		var c Commit
 		err := decoder.Decode(&c)
-		// TODO handle
 		if err != nil {
-			panic(err)
+			w.WriteHeader(http.StatusBadRequest)
 		}
 		c.CTime = time.Now()
 		if _, ok := repoStore.Repositories[c.Repository]; ok {
@@ -89,9 +88,8 @@ func handleTestRunner(w http.ResponseWriter, r *http.Request) {
 		decoder := json.NewDecoder(r.Body)
 		var t TestRunner
 		err := decoder.Decode(&t)
-		// TODO handle
 		if err != nil {
-			panic(err)
+			w.WriteHeader(http.StatusBadRequest)
 		}
 		t.Alive = true
 		repoStore.Runners = append(repoStore.Runners, t)
