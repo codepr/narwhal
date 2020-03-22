@@ -38,31 +38,31 @@ import (
 
 type Server struct {
 	server              *http.Server
-	runnerPool          *TestRunnerPool
+	runnerPool          RunnerPool
 	healthcheck_ch      chan bool
 	healthcheck_timeout time.Duration
 }
 
-func newRouter(p *TestRunnerPool) *http.ServeMux {
+func newRouter(r RunnerPool) *http.ServeMux {
 	router := http.NewServeMux()
-	router.Handle("/runner", handleTestRunner(p))
-	router.Handle("/commit", handleCommit(p))
+	router.Handle("/runner", handleTestRunner(r))
+	router.Handle("/commit", handleCommit(r))
 	return router
 }
 
 func NewServer(addr string, l *log.Logger,
-	p *TestRunnerPool, ts time.Duration) *Server {
+	r RunnerPool, ts time.Duration) *Server {
 	return &Server{
 		server: &http.Server{
 			Addr:           addr,
-			Handler:        logReq(l)(newRouter(p)),
+			Handler:        logReq(l)(newRouter(r)),
 			ErrorLog:       l,
 			ReadTimeout:    5 * time.Second,
 			WriteTimeout:   10 * time.Second,
 			IdleTimeout:    30 * time.Second,
 			MaxHeaderBytes: 1 << 20,
 		},
-		runnerPool:          p,
+		runnerPool:          r,
 		healthcheck_timeout: ts,
 		healthcheck_ch:      make(chan bool),
 	}
@@ -109,12 +109,7 @@ func (s *Server) runnersHealthcheck() {
 			ticker.Stop()
 			return
 		case <-ticker.C:
-			for _, t := range s.runnerPool.runners {
-				res, err := http.Get(t.URL + "/health")
-				if err != nil || res.StatusCode != 200 {
-					t.Alive = false
-				}
-			}
+			s.runnerPool.HealthCheck()
 		}
 	}
 }

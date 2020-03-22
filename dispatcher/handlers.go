@@ -32,7 +32,7 @@ import (
 	"time"
 )
 
-func handleCommit(pool *TestRunnerPool) http.HandlerFunc {
+func handleCommit(pool RunnerPool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -55,11 +55,11 @@ func handleCommit(pool *TestRunnerPool) http.HandlerFunc {
 			if cmt, ok := pool.GetCommit(c.Repository); ok {
 				if cmt.Id != c.Id {
 					pool.PutCommit(c.Repository, &c)
-					pool.EnqueueCommit(&c)
+					pool.EnqueueCommitExecution(&c)
 				}
 			} else {
 				pool.PutCommit(c.Repository, &c)
-				pool.EnqueueCommit(&c)
+				pool.EnqueueCommitExecution(&c)
 			}
 			w.WriteHeader(http.StatusOK)
 		default:
@@ -69,22 +69,22 @@ func handleCommit(pool *TestRunnerPool) http.HandlerFunc {
 	}
 }
 
-func handleTestRunner(pool *TestRunnerPool) http.HandlerFunc {
+func handleTestRunner(pool RunnerPool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			// Return a list of already registered testrunners
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(pool.runners)
+			json.NewEncoder(w).Encode(pool.Runners())
 		case http.MethodPost:
 			// Register a new testrunner
 			decoder := json.NewDecoder(r.Body)
-			var t TestRunner
+			var t TestRunnerServer
 			err := decoder.Decode(&t)
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
 			}
-			t.Alive = true
+			t.SetAlive(true)
 			pool.AddRunner(t)
 			w.WriteHeader(http.StatusOK)
 		default:

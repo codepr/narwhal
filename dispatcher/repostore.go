@@ -40,7 +40,7 @@ import (
 
 // Temporary database, should be replaced with a real DB, like sqlite
 // Just carry a mapping of repository -> latest commit processed and an array
-// of TestRunner servers
+// of TestRunnerServer servers
 type Store struct {
 	repositories map[string]*Commit
 }
@@ -51,19 +51,55 @@ type Commit struct {
 	cTime      time.Time
 }
 
+// Runner defines the behaviour of a generic test runner, be it a server entity
+// or a container for test execution
+type Runner interface {
+	// Submit job
+	// TODO return a JobResult or something
+	Submit(*Commit) error
+
+	// Describe the status of the runner
+	Alive() bool
+
+	// Set alive flag
+	SetAlive(bool)
+
+	// Check for alive status
+	HealthCheck()
+}
+
 // Just the URL of the testing machines for now
-type TestRunner struct {
+type TestRunnerServer struct {
 	URL   string `json:"url"`
-	Alive bool   `json:"alive"`
+	alive bool   `json:"alive"`
+}
+
+type RunnerPool interface {
+	// Enqueue commit execution
+	EnqueueCommitExecution(*Commit)
+
+	// Return the runners registered on the pool
+	Runners() []Runner
+
+	// Check for health of every runner
+	HealthCheck()
+
+	// Stop the runner
+	Stop()
+
+	AddRunner(Runner)
+
+	PutCommit(string, *Commit)
+
+	GetCommit(string) (*Commit, bool)
 }
 
 // Pool of servers to be targeted for incoming jobs (e.g. new commits to run
 // tests against)
 type TestRunnerPool struct {
-
 	// An array of servers, each one consists of an URL and an Alive flag which
 	// act as an indicator of reachability and thus availability for jobs
-	runners []TestRunner
+	runners []Runner
 
 	// Current is the integer sentinel to be used to select an available
 	// test-runner server to send job to using a round-robin algorithm
@@ -82,9 +118,28 @@ type TestRunnerPool struct {
 	logger *log.Logger
 }
 
-// Private function to submit a commit to the URL associated to the TestRunner
-// object
-func (tr *TestRunner) submitCommit(c *Commit) error {
+func (tr TestRunnerServer) Submit(c *Commit) error {
+	return tr.submitCommit(c)
+}
+
+func (tr TestRunnerServer) Alive() bool {
+	return tr.alive
+}
+
+func (tr TestRunnerServer) SetAlive(alive bool) {
+	tr.alive = alive
+}
+
+func (tr TestRunnerServer) HealthCheck() {
+	res, err := http.Get(tr.URL + "/health")
+	if err != nil || res.StatusCode != 200 {
+		tr.SetAlive(false)
+	}
+}
+
+// Private function to submit a commit to the URL associated to the
+// TestRunnerServer object
+func (tr *TestRunnerServer) submitCommit(c *Commit) error {
 	payload, err := json.Marshal(c)
 	if err != nil {
 		return errors.New("Unable to marshal commit")
@@ -98,7 +153,7 @@ func (tr *TestRunner) submitCommit(c *Commit) error {
 
 func NewTestRunnerPool(ch chan *Commit, l *log.Logger) *TestRunnerPool {
 	pool := TestRunnerPool{
-		runners: []TestRunner{},
+		runners: []Runner{},
 		store: &Store{
 			repositories: map[string]*Commit{},
 		},
@@ -109,8 +164,10 @@ func NewTestRunnerPool(ch chan *Commit, l *log.Logger) *TestRunnerPool {
 	go pool.pushCommitToRunner()
 	return &pool
 }
-
-func (pool *TestRunnerPool) AddRunner(t TestRunner) {
+func (pool *TestRunnerPool) Runners() []Runner {
+	return pool.runners
+}
+func (pool *TestRunnerPool) AddRunner(t Runner) {
 	pool.runners = append(pool.runners, t)
 }
 
@@ -123,20 +180,20 @@ func (pool *TestRunnerPool) GetCommit(repo string) (*Commit, bool) {
 	return val, ok
 }
 
-// Obtain a valid TestRunner instance, it must be alive, using roudn robin to
-// select it
-func (pool *TestRunnerPool) getRunner() (*TestRunner, error) {
+// Obtain a valid TestRunnerServer instance, it must be alive, using roudn robin
+//to select it
+func (pool *TestRunnerPool) getRunner() (Runner, error) {
 	var index int = 0
 	runners := len(pool.runners)
 	if runners == 0 {
 		return nil, errors.New("No runners available")
 	}
 	// Round robin
-	for index = pool.current % runners; pool.runners[index].Alive == false; {
+	for index = pool.current % runners; pool.runners[index].Alive() == false; {
 		index = pool.current % runners
 		pool.current++
 	}
-	return &pool.runners[index], nil
+	return pool.runners[index], nil
 }
 
 func (pool *TestRunnerPool) pushCommitToRunner() {
@@ -149,7 +206,7 @@ func (pool *TestRunnerPool) pushCommitToRunner() {
 				continue
 			}
 			pool.logger.Println("Sending commit to runner")
-			err = runner.submitCommit(commit)
+			err = runner.Submit(commit)
 			if err != nil {
 				pool.logger.Println(err)
 			}
@@ -159,10 +216,16 @@ func (pool *TestRunnerPool) pushCommitToRunner() {
 	}
 }
 
-func (pool *TestRunnerPool) EnqueueCommit(c *Commit) {
+func (pool TestRunnerPool) EnqueueCommitExecution(c *Commit) {
 	pool.commitsCh <- c
 }
 
-func (pool *TestRunnerPool) Stop() {
+func (pool TestRunnerPool) Stop() {
 	close(pool.commitsCh)
+}
+
+func (pool TestRunnerPool) HealthCheck() {
+	for _, t := range pool.runners {
+		t.HealthCheck()
+	}
 }
