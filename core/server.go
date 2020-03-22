@@ -43,14 +43,18 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
 
 const (
 	Dispatcher = iota
-	TestRunner = iota
+	TestRunner
 )
+
+// Healthcheck sentinel
+var healthy int32
 
 type Server interface {
 	// Start the server, listening on a host:port tuple
@@ -94,6 +98,12 @@ func dispatcherNewRouter(r RunnerPool) *http.ServeMux {
 	return router
 }
 
+func runnerNewRouter(r RunnerPool) *http.ServeMux {
+	router := http.NewServeMux()
+	router.Handle("/health", handleTestRunnerHealth(r))
+	return router
+}
+
 // Factory function, return a Server instance based on serverType argument
 func NewServer(addr string, l *log.Logger,
 	r RunnerPool, ts time.Duration, serverType int) Server {
@@ -117,7 +127,7 @@ func NewServer(addr string, l *log.Logger,
 		return &RunnerServer{
 			server: &http.Server{
 				Addr:           addr,
-				Handler:        logReq(l)(dispatcherNewRouter(r)),
+				Handler:        logReq(l)(runnerNewRouter(r)),
 				ErrorLog:       l,
 				ReadTimeout:    5 * time.Second,
 				WriteTimeout:   10 * time.Second,
@@ -171,6 +181,7 @@ func (s *RunnerServer) Run() error {
 	go func() {
 		<-quit
 		s.server.ErrorLog.Println("Shutdown")
+		atomic.StoreInt32(&healthy, 0)
 		// Stop push pushCommit goroutine
 		s.runnerPool.Stop()
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -182,6 +193,7 @@ func (s *RunnerServer) Run() error {
 		close(done)
 	}()
 
+	atomic.StoreInt32(&healthy, 1)
 	s.server.ErrorLog.Println("Listening on", s.server.Addr)
 	if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		s.server.ErrorLog.Println("Unable to bind on", s.server.Addr)

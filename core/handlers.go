@@ -29,6 +29,7 @@ package core
 import (
 	"encoding/json"
 	"net/http"
+	"sync/atomic"
 	"time"
 )
 
@@ -90,6 +91,16 @@ func handleTestRunner(pool RunnerPool) http.HandlerFunc {
 		default:
 			// 400 for unwanted HTTP methods
 			w.WriteHeader(http.StatusBadRequest)
+		}
+	}
+}
+
+func handleTestRunnerHealth(pool RunnerPool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if atomic.LoadInt32(&healthy) == 1 {
+			w.WriteHeader(http.StatusOK)
+		} else {
+			w.WriteHeader(http.StatusServiceUnavailable)
 		}
 	}
 }

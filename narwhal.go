@@ -35,16 +35,28 @@ import (
 
 const healthcheck_timeout = 1
 
-var addr string
+var (
+	addr       string
+	serverType int
+)
 
 func main() {
 	flag.StringVar(&addr, "addr", ":28919", "Server listening address")
+	flag.IntVar(&serverType, "type", core.Dispatcher, "Server type, can be either 0 (Dispatcher) or 1 (Runner)")
 	flag.Parse()
 
+	if serverType < 0 || serverType > 1 {
+		log.Fatal("Server type not supported")
+	}
+
+	var prefix string = "dispatcher -"
+	if serverType == core.TestRunner {
+		prefix = "runner -"
+	}
 	commitsCh := make(chan *core.Commit)
-	logger := log.New(os.Stdout, "dispatcher - ", log.LstdFlags)
+	logger := log.New(os.Stdout, prefix, log.LstdFlags)
 	runnerPool := core.NewTestRunnerPool(commitsCh, logger)
-	server := core.NewServer(addr, logger, runnerPool, healthcheck_timeout, core.Dispatcher)
+	server := core.NewServer(addr, logger, runnerPool, healthcheck_timeout, serverType)
 
 	if err := server.Run(); err != nil {
 		logger.Fatal(err)
