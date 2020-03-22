@@ -24,6 +24,9 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+// Repostore is the domain model of the dispatcher component, it's comprised of
+// a mapping of repo -> commits abstraction, a pool of test-runner servers to
+// dispatch work to
 package dispatcher
 
 import (
@@ -54,13 +57,33 @@ type TestRunner struct {
 	Alive bool   `json:"alive"`
 }
 
+// Pool of servers to be targeted for incoming jobs (e.g. new commits to run
+// tests against)
 type TestRunnerPool struct {
-	runners   []TestRunner
-	store     *Store
+
+	// An array of servers, each one consists of an URL and an Alive flag which
+	// act as an indicator of reachability and thus availability for jobs
+	runners []TestRunner
+
+	// Current is the integer sentinel to be used to select an available
+	// test-runner server to send job to using a round-robin algorithm
+	current int
+
+	// Store is just a pointer to a map of repositories -> commits. Each commit
+	// value is updated at the last executed one
+	store *Store
+
+	// Bounded channel of type *Commit, used as a simple task queue to notify
+	// the job-dispatching goroutine to send work to selected test-runner
 	commitsCh chan *Commit
-	logger    *log.Logger
+
+	// Just a logger to uniform with the rest of the app, generally it's the
+	// server ErrorLog pointer
+	logger *log.Logger
 }
 
+// Private function to submit a commit to the URL associated to the TestRunner
+// object
 func (tr *TestRunner) submitCommit(c *Commit) error {
 	payload, err := json.Marshal(c)
 	if err != nil {
@@ -103,15 +126,15 @@ func (pool *TestRunnerPool) GetCommit(repo string) (*Commit, bool) {
 // Obtain a valid TestRunner instance, it must be alive, using roudn robin to
 // select it
 func (pool *TestRunnerPool) getRunner() (*TestRunner, error) {
-	var index, counter int = 0, 0
+	var index int = 0
 	runners := len(pool.runners)
 	if runners == 0 {
 		return nil, errors.New("No runners available")
 	}
 	// Round robin
-	for index = counter % runners; pool.runners[index].Alive == false; {
-		index = counter % runners
-		counter++
+	for index = pool.current % runners; pool.runners[index].Alive == false; {
+		index = pool.current % runners
+		pool.current++
 	}
 	return &pool.runners[index], nil
 }
@@ -126,7 +149,10 @@ func (pool *TestRunnerPool) pushCommitToRunner() {
 				continue
 			}
 			pool.logger.Println("Sending commit to runner")
-			runner.submitCommit(commit)
+			err = runner.submitCommit(commit)
+			if err != nil {
+				pool.logger.Println(err)
+			}
 		case <-pool.commitsCh:
 			return
 		}
