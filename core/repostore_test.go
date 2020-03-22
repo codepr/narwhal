@@ -85,4 +85,5 @@ func TestGetRunner(t *testing.T) {
 	if _, err := pool.getRunner(); err != nil {
 		t.Errorf("TestRunnerPool.getRunner returned a nil runner")
 	}
+	pool.Stop()
 }
