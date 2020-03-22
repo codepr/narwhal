@@ -35,6 +35,12 @@ import (
 func handleCommit(pool *TestRunnerPool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
+		case http.MethodGet:
+			// TODO
+			// Wrap Commit struct inside a more generic Job structure,
+			// tracking the state (e.g. PENDING, COMPLETE, FAILED) based
+			// on runner's responses
+			w.WriteHeader(http.StatusOK)
 		case http.MethodPost:
 			// Only POST is allowed, decode the json payload and check if the
 			// received commit is elegible for a test-run of it's already been

@@ -4,7 +4,15 @@ Narwhal
 PoC of a basic continous integration local server. Currently consists of 2
 processes:
 
-- Dispatcher, listening for new commit requests
+- Dispatcher, listening for new commit requests, currently exposes just 2 REST
+  APIs:
+  - `/runner` to manage testrunner servers, this endpoint will be used to
+    register new runners (POST) and to get a list of them as well (GET)
+  - `/commit` to add new commits to be processed, each commit is comprised of
+    its ID and the repository it belongs to. Future development will wrap this
+    abstraction on a more generic "Job" with some stats and tracking of the
+    progress status.
+
 - TestRunner, the worker, should be 1 or more, ideally spread on a peer's subnet.
   Each testrunner must register to the dispatcher in order to receive jobs, and
   orchestrate a pool of containers to run tests (and arguably other instructions).

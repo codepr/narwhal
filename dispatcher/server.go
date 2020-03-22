@@ -45,7 +45,7 @@ type Server struct {
 
 func newRouter(p *TestRunnerPool) *http.ServeMux {
 	router := http.NewServeMux()
-	router.Handle("/testrunner", handleTestRunner(p))
+	router.Handle("/runner", handleTestRunner(p))
 	router.Handle("/commit", handleCommit(p))
 	return router
 }
