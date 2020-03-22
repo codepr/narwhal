@@ -31,6 +31,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
@@ -69,6 +71,7 @@ func NewServer(addr string, l *log.Logger,
 func (s *Server) Run() error {
 	done := make(chan bool)
 	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
 		<-quit
@@ -89,7 +92,7 @@ func (s *Server) Run() error {
 
 	s.server.ErrorLog.Println("Listening on", s.server.Addr)
 	if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		s.server.ErrorLog.Println("Unable to bind on %s", s.server.Addr)
+		s.server.ErrorLog.Println("Unable to bind on", s.server.Addr)
 	}
 
 	<-done
