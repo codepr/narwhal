@@ -27,7 +27,7 @@
 // Repostore is the domain model of the dispatcher component, it's comprised of
 // a mapping of repo -> commits abstraction, a pool of test-runner servers to
 // dispatch work to
-package dispatcher
+package core
 
 import (
 	"bytes"
@@ -179,8 +179,8 @@ func (pool *TestRunnerPool) GetCommit(repo string) (*Commit, bool) {
 	return val, ok
 }
 
-// Obtain a valid TestRunnerServer instance, it must be alive, using roudn robin
-//to select it
+// Obtain a valid TestRunnerServer instance, it must be alive, using round robin
+// to select it
 func (pool *TestRunnerPool) getRunner() (Runner, error) {
 	var index int = 0
 	runners := len(pool.runners)
@@ -195,6 +195,8 @@ func (pool *TestRunnerPool) getRunner() (Runner, error) {
 	return pool.runners[index], nil
 }
 
+// Private function meant to be executed concurrently as a goroutine,
+// continously polling for new commits to forward them to an alive runner
 func (pool *TestRunnerPool) pushCommitToRunner() {
 	for {
 		select {

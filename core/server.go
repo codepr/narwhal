@@ -24,7 +24,7 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-package dispatcher
+package core
 
 import (
 	"context"
@@ -65,6 +65,7 @@ func dispatcherNewRouter(r RunnerPool) *http.ServeMux {
 	return router
 }
 
+// Factory function, return a Server instance based on serverType argument
 func NewServer(addr string, l *log.Logger,
 	r RunnerPool, ts time.Duration, serverType int) Server {
 	switch serverType {

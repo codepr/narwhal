@@ -24,20 +24,29 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-package dispatcher
+package main
 
 import (
+	"flag"
+	"github.com/codepr/narwhal/core"
 	"log"
-	"net/http"
+	"os"
 )
 
-func logReq(l *log.Logger) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			defer func() {
-				l.Println(r.Method, r.URL.Path, r.RemoteAddr, r.UserAgent())
-			}()
-			next.ServeHTTP(w, r)
-		})
+const healthcheck_timeout = 1
+
+var addr string
+
+func main() {
+	flag.StringVar(&addr, "addr", ":28919", "Server listening address")
+	flag.Parse()
+
+	commitsCh := make(chan *core.Commit)
+	logger := log.New(os.Stdout, "dispatcher - ", log.LstdFlags)
+	runnerPool := core.NewTestRunnerPool(commitsCh, logger)
+	server := core.NewServer(addr, logger, runnerPool, healthcheck_timeout, core.Dispatcher)
+
+	if err := server.Run(); err != nil {
+		logger.Fatal(err)
 	}
 }
