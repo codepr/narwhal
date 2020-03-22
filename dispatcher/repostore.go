@@ -58,6 +58,7 @@ type TestRunnerPool struct {
 	runners   []TestRunner
 	store     *Store
 	commitsCh chan *Commit
+	logger    *log.Logger
 }
 
 func (tr *TestRunner) submitCommit(c *Commit) error {
@@ -72,13 +73,14 @@ func (tr *TestRunner) submitCommit(c *Commit) error {
 	return nil
 }
 
-func NewTestRunnerPool(ch chan *Commit) *TestRunnerPool {
+func NewTestRunnerPool(ch chan *Commit, l *log.Logger) *TestRunnerPool {
 	pool := TestRunnerPool{
 		runners: []TestRunner{},
 		store: &Store{
 			repositories: map[string]*Commit{},
 		},
 		commitsCh: ch,
+		logger:    l,
 	}
 	// Start goroutine to continually send commits incoming on the channel
 	go pool.pushCommitToRunner()
@@ -120,10 +122,10 @@ func (pool *TestRunnerPool) pushCommitToRunner() {
 		case commit := <-pool.commitsCh:
 			runner, err := pool.getRunner()
 			if err != nil {
-				log.Println(err)
+				pool.logger.Println(err)
 				continue
 			}
-			log.Println("Sending commit to runner")
+			pool.logger.Println("Sending commit to runner")
 			runner.submitCommit(commit)
 		case <-pool.commitsCh:
 			return

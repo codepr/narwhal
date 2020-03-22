@@ -78,6 +78,8 @@ func (s *Server) Run() error {
 		s.server.ErrorLog.Println("Shutdown")
 		// Stop the healthcheck goroutine
 		s.healthcheck_ch <- true
+		// Stop push pushCommit goroutine
+		s.runnerPool.Stop()
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		s.server.SetKeepAlivesEnabled(false)

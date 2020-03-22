@@ -42,10 +42,10 @@ func main() {
 	flag.Parse()
 
 	commitsCh := make(chan *dispatcher.Commit)
-
-	runnerPool := dispatcher.NewTestRunnerPool(commitsCh)
-
 	logger := log.New(os.Stdout, "dispatcher - ", log.LstdFlags)
+
+	runnerPool := dispatcher.NewTestRunnerPool(commitsCh, logger)
+
 	server := dispatcher.NewServer(addr, logger, runnerPool, healthcheck_timeout)
 
 	log.Fatal(server.Run())
