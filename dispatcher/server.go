@@ -36,14 +36,29 @@ import (
 	"time"
 )
 
-type Server struct {
+const (
+	Dispatcher = iota
+	TestRunner = iota
+)
+
+type Server interface {
+	// Start the server
+	Run() error
+}
+
+type DispatcherServer struct {
 	server              *http.Server
 	runnerPool          RunnerPool
 	healthcheck_ch      chan bool
 	healthcheck_timeout time.Duration
 }
 
-func newRouter(r RunnerPool) *http.ServeMux {
+type RunnerServer struct {
+	server     *http.Server
+	runnerPool RunnerPool
+}
+
+func dispatcherNewRouter(r RunnerPool) *http.ServeMux {
 	router := http.NewServeMux()
 	router.Handle("/runner", handleTestRunner(r))
 	router.Handle("/commit", handleCommit(r))
@@ -51,24 +66,41 @@ func newRouter(r RunnerPool) *http.ServeMux {
 }
 
 func NewServer(addr string, l *log.Logger,
-	r RunnerPool, ts time.Duration) *Server {
-	return &Server{
-		server: &http.Server{
-			Addr:           addr,
-			Handler:        logReq(l)(newRouter(r)),
-			ErrorLog:       l,
-			ReadTimeout:    5 * time.Second,
-			WriteTimeout:   10 * time.Second,
-			IdleTimeout:    30 * time.Second,
-			MaxHeaderBytes: 1 << 20,
-		},
-		runnerPool:          r,
-		healthcheck_timeout: ts,
-		healthcheck_ch:      make(chan bool),
+	r RunnerPool, ts time.Duration, serverType int) Server {
+	switch serverType {
+	case Dispatcher:
+		return &DispatcherServer{
+			server: &http.Server{
+				Addr:           addr,
+				Handler:        logReq(l)(dispatcherNewRouter(r)),
+				ErrorLog:       l,
+				ReadTimeout:    5 * time.Second,
+				WriteTimeout:   10 * time.Second,
+				IdleTimeout:    30 * time.Second,
+				MaxHeaderBytes: 1 << 20,
+			},
+			runnerPool:          r,
+			healthcheck_timeout: ts,
+			healthcheck_ch:      make(chan bool),
+		}
+	case TestRunner:
+		return &RunnerServer{
+			server: &http.Server{
+				Addr:           addr,
+				Handler:        logReq(l)(dispatcherNewRouter(r)),
+				ErrorLog:       l,
+				ReadTimeout:    5 * time.Second,
+				WriteTimeout:   10 * time.Second,
+				IdleTimeout:    30 * time.Second,
+				MaxHeaderBytes: 1 << 20,
+			},
+			runnerPool: r,
+		}
 	}
+	return nil
 }
 
-func (s *Server) Run() error {
+func (s *DispatcherServer) Run() error {
 	done := make(chan bool)
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -101,7 +133,35 @@ func (s *Server) Run() error {
 	return nil
 }
 
-func (s *Server) runnersHealthcheck() {
+func (s *RunnerServer) Run() error {
+	done := make(chan bool)
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		<-quit
+		s.server.ErrorLog.Println("Shutdown")
+		// Stop push pushCommit goroutine
+		s.runnerPool.Stop()
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		s.server.SetKeepAlivesEnabled(false)
+		if err := s.server.Shutdown(ctx); err != nil {
+			s.server.ErrorLog.Fatal("Could not shutdown the server")
+		}
+		close(done)
+	}()
+
+	s.server.ErrorLog.Println("Listening on", s.server.Addr)
+	if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		s.server.ErrorLog.Println("Unable to bind on", s.server.Addr)
+	}
+
+	<-done
+	return nil
+}
+
+func (s *DispatcherServer) runnersHealthcheck() {
 	ticker := time.NewTicker(s.healthcheck_timeout * time.Second)
 	for {
 		select {

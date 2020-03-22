@@ -44,7 +44,7 @@ func main() {
 	commitsCh := make(chan *dispatcher.Commit)
 	logger := log.New(os.Stdout, "dispatcher - ", log.LstdFlags)
 	runnerPool := dispatcher.NewTestRunnerPool(commitsCh, logger)
-	server := dispatcher.NewServer(addr, logger, runnerPool, healthcheck_timeout)
+	server := dispatcher.NewServer(addr, logger, runnerPool, healthcheck_timeout, dispatcher.Dispatcher)
 
 	if err := server.Run(); err != nil {
 		logger.Fatal(err)

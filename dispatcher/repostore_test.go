@@ -82,11 +82,7 @@ func TestGetRunner(t *testing.T) {
 		t.Errorf("TestRunnerPool.getRunner on a supposed empty pool returned a runner")
 	}
 	pool.AddRunner(TestRunnerServer{"http://localhost:9898", true})
-	if r, err := pool.getRunner(); err != nil {
+	if _, err := pool.getRunner(); err != nil {
 		t.Errorf("TestRunnerPool.getRunner returned a nil runner")
-	} else {
-		if r.URL != "http://localhost:9898" {
-			t.Errorf("TestRunnerPool.getRunner returned a wrong runner")
-		}
 	}
 }

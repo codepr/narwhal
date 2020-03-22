@@ -64,14 +64,14 @@ type Runner interface {
 	// Set alive flag
 	SetAlive(bool)
 
-	// Check for alive status
+	// Check for alive status of the runner
 	HealthCheck()
 }
 
 // Just the URL of the testing machines for now
 type TestRunnerServer struct {
 	URL   string `json:"url"`
-	alive bool   `json:"alive"`
+	alive bool
 }
 
 type RunnerPool interface {
@@ -87,10 +87,13 @@ type RunnerPool interface {
 	// Stop the runner
 	Stop()
 
+	// Add a new runner to the pool
 	AddRunner(Runner)
 
+	// Update the latest processed commit on the store map
 	PutCommit(string, *Commit)
 
+	// Retrieve the latest commit from the store
 	GetCommit(string) (*Commit, bool)
 }
 
@@ -118,8 +121,18 @@ type TestRunnerPool struct {
 	logger *log.Logger
 }
 
+// Submit function to submit a commit to the URL associated to the
+// TestRunnerServer object
 func (tr TestRunnerServer) Submit(c *Commit) error {
-	return tr.submitCommit(c)
+	payload, err := json.Marshal(c)
+	if err != nil {
+		return errors.New("Unable to marshal commit")
+	}
+	_, err = http.Post(tr.URL+"/repository", "application/json", bytes.NewBuffer(payload))
+	if err != nil {
+		return errors.New("Unable to send test to runner")
+	}
+	return nil
 }
 
 func (tr TestRunnerServer) Alive() bool {
@@ -135,20 +148,6 @@ func (tr TestRunnerServer) HealthCheck() {
 	if err != nil || res.StatusCode != 200 {
 		tr.SetAlive(false)
 	}
-}
-
-// Private function to submit a commit to the URL associated to the
-// TestRunnerServer object
-func (tr *TestRunnerServer) submitCommit(c *Commit) error {
-	payload, err := json.Marshal(c)
-	if err != nil {
-		return errors.New("Unable to marshal commit")
-	}
-	_, err = http.Post(tr.URL+"/repository", "application/json", bytes.NewBuffer(payload))
-	if err != nil {
-		return errors.New("Unable to send test to runner")
-	}
-	return nil
 }
 
 func NewTestRunnerPool(ch chan *Commit, l *log.Logger) *TestRunnerPool {
