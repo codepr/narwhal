@@ -125,10 +125,16 @@ func (pool *TestRunnerPool) pushCommitToRunner() {
 			}
 			log.Println("Sending commit to runner")
 			runner.submitCommit(commit)
+		case <-pool.commitsCh:
+			return
 		}
 	}
 }
 
 func (pool *TestRunnerPool) EnqueueCommit(c *Commit) {
 	pool.commitsCh <- c
+}
+
+func (pool *TestRunnerPool) Stop() {
+	close(pool.commitsCh)
 }
