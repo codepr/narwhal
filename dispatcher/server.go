@@ -22,7 +22,7 @@ func newRouter(p *TestRunnerPool) *http.ServeMux {
 	return router
 }
 
-func newServer(addr string, l *log.Logger,
+func NewServer(addr string, l *log.Logger,
 	p *TestRunnerPool, ts time.Duration) *Server {
 	return &Server{
 		server: &http.Server{
@@ -59,9 +59,9 @@ func (s *Server) Run() error {
 	}()
 
 	// Start healthcheck goroutine
-	s.runnersHealthcheck()
+	go s.runnersHealthcheck()
 
-	s.server.ErrorLog.Println("Listening on %s", s.server.Addr)
+	s.server.ErrorLog.Println("Listening on", s.server.Addr)
 	if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		s.server.ErrorLog.Println("Unable to bind on %s", s.server.Addr)
 	}

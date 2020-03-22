@@ -46,7 +46,7 @@ func (tr *TestRunner) submitCommit(c *Commit) error {
 	return nil
 }
 
-func newTestRunnerPool(ch chan *Commit) *TestRunnerPool {
+func NewTestRunnerPool(ch chan *Commit) *TestRunnerPool {
 	pool := TestRunnerPool{
 		runners: []TestRunner{},
 		store: &Store{
