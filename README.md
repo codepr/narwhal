@@ -1,6 +1,8 @@
 Narwhal
 =======
 
+![Go](https://github.com/codepr/narwhal/workflows/Go/badge.svg)
+
 PoC of a basic continous integration local server. Currently consists of 2
 processes:
 
