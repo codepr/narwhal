@@ -24,6 +24,17 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+// Server contains factory functions to create and run server components,
+// currently 2 types of server are supported:
+//
+// - Dispatcher: register runners and accept commits and forward them to an
+//               alive runner for processing tests and other instructions, only
+//               if not already processed before (e.g. only newest commits
+//               are elegible for processing)
+// - TestRunner: run a pool of containers and accepts commits from the
+//				 dispatcher, its responsibility is to handle execution of tests
+//				 and other instructions, crashes and timeouts are to be
+//				 expected
 package core
 
 import (
@@ -42,19 +53,37 @@ const (
 )
 
 type Server interface {
-	// Start the server
+	// Start the server, listening on a host:port tuple
 	Run() error
 }
 
 type DispatcherServer struct {
-	server              *http.Server
-	runnerPool          RunnerPool
-	healthcheck_ch      chan bool
+	// server is a pointer to a builtin library http.Server, listen on a
+	// host:port tuple and expose some REST APIs
+	server *http.Server
+
+	// runnerPool is a pool of RunnerPool type, specifically a DispatcherServer
+	// exptects them to be of type TestRunnerPool, representing remote servers
+	// located by an URL
+	runnerPool RunnerPool
+
+	// healthcheck_ch is a channel that acts as a helm to managing a periodic
+	// check on health status of each runner
+	healthcheck_ch chan bool
+
+	// healthcheck_timeout define the ticks for the healthcheck calls of each
+	// runner
 	healthcheck_timeout time.Duration
 }
 
 type RunnerServer struct {
-	server     *http.Server
+	// server is a pointer to a builtin library http.Server, listen on a
+	// host:port tuple and expose some REST APIs
+	server *http.Server
+
+	// runnerPool is a pool of RunnerPool type, specifically a DispatcherServer
+	// exptects them to be of type ContainerRunnerPool, representing a pool of
+	// docker containers to run tests inside. Meant to be pre-allocated.
 	runnerPool RunnerPool
 }
 
