@@ -35,6 +35,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -42,6 +43,7 @@ import (
 // Just carry a mapping of repository -> latest commit processed and an array
 // of TestRunnerServer servers
 type Store struct {
+	sync.Mutex
 	repositories map[string]*Commit
 }
 
@@ -104,6 +106,9 @@ type RunnerPool interface {
 // Pool of servers to be targeted for incoming jobs (e.g. new commits to run
 // tests against)
 type TestRunnerPool struct {
+	// Lock for avoid contention
+	m *sync.Mutex
+
 	// A set of servers, each one consists of an URL and an Alive flag which
 	// act as an indicator of reachability and thus availability for jobs
 	runners map[Runner]bool
@@ -157,6 +162,7 @@ func (tr TestRunnerServer) HealthCheck() {
 
 func NewTestRunnerPool(ch chan *Commit, l *log.Logger) *TestRunnerPool {
 	pool := TestRunnerPool{
+		m:       new(sync.Mutex),
 		runners: map[Runner]bool{},
 		store: &Store{
 			repositories: map[string]*Commit{},
@@ -174,11 +180,15 @@ func (pool *TestRunnerPool) Runners() map[Runner]bool {
 }
 
 func (pool *TestRunnerPool) AddRunner(r Runner) {
+	pool.m.Lock()
 	pool.runners[r] = true
+	pool.m.Unlock()
 }
 
 func (pool *TestRunnerPool) RemoveRunner(r Runner) {
+	pool.m.Lock()
 	delete(pool.runners, r)
+	pool.m.Unlock()
 }
 
 func (pool *TestRunnerPool) PutCommit(repo string, c *Commit) {
@@ -186,7 +196,9 @@ func (pool *TestRunnerPool) PutCommit(repo string, c *Commit) {
 }
 
 func (pool *TestRunnerPool) GetCommit(repo string) (*Commit, bool) {
+	pool.store.Lock()
 	val, ok := pool.store.repositories[repo]
+	pool.store.Unlock()
 	return val, ok
 }
 
@@ -194,8 +206,10 @@ func (pool *TestRunnerPool) GetCommit(repo string) (*Commit, bool) {
 // to select it
 func (pool *TestRunnerPool) getRunner() (Runner, error) {
 	var index, i int = 0, 0
+	pool.m.Lock()
 	runners := len(pool.runners)
 	if runners == 0 {
+		pool.m.Unlock()
 		return nil, errors.New("No runners available")
 	}
 	keys := make([]Runner, runners)
@@ -208,6 +222,7 @@ func (pool *TestRunnerPool) getRunner() (Runner, error) {
 		index = pool.current % runners
 		pool.current++
 	}
+	pool.m.Unlock()
 	return keys[index], nil
 }
 
