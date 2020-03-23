@@ -24,6 +24,11 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+// Commitstore is the domain model of the dispatcher part of the application
+// comprised of Commit, a simple abstraction over what we find useful to
+// describe a commit and a CommitStore, which act as in-memory DB of the
+// repositories tracked and their last processed commit
+
 package core
 
 import (
@@ -43,4 +48,17 @@ type Commit struct {
 	Id         string `json:"id"`
 	Repository string `json:"repository"`
 	cTime      time.Time
+}
+
+func (cs *CommitStore) PutCommit(repo string, c *Commit) {
+	cs.Lock()
+	cs.repositories[repo] = c
+	cs.Unlock()
+}
+
+func (cs *CommitStore) GetCommit(repo string) (*Commit, bool) {
+	cs.Lock()
+	val, ok := cs.repositories[repo]
+	cs.Unlock()
+	return val, ok
 }

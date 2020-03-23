@@ -194,14 +194,11 @@ func (pool *TestRunnerPool) RemoveRunner(r Runner) {
 }
 
 func (pool *TestRunnerPool) PutCommit(repo string, c *Commit) {
-	pool.store.repositories[repo] = c
+	pool.store.PutCommit(repo, c)
 }
 
 func (pool *TestRunnerPool) GetCommit(repo string) (*Commit, bool) {
-	pool.store.Lock()
-	val, ok := pool.store.repositories[repo]
-	pool.store.Unlock()
-	return val, ok
+	return pool.store.GetCommit(repo)
 }
 
 // Obtain a valid TestRunnerServer instance, it must be alive, using round robin
