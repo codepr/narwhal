@@ -80,23 +80,23 @@ func handleTestRunner(pool RunnerPool) http.HandlerFunc {
 		case http.MethodPost:
 			// Register a new testrunner
 			decoder := json.NewDecoder(r.Body)
-			var t TestRunnerServer
-			err := decoder.Decode(&t)
+			var s ServerRunner
+			err := decoder.Decode(&s)
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
 			}
-			t.SetAlive(true)
-			pool.AddRunner(t)
+			s.SetAlive(true)
+			pool.AddRunner(s)
 			w.WriteHeader(http.StatusOK)
 		case http.MethodDelete:
 			// Unregister testrunner
 			decoder := json.NewDecoder(r.Body)
-			var t TestRunnerServer
-			err := decoder.Decode(&t)
+			var s ServerRunner
+			err := decoder.Decode(&s)
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
 			}
-			pool.RemoveRunner(t)
+			pool.RemoveRunner(s)
 			w.WriteHeader(http.StatusNoContent)
 		default:
 			// 400 for unwanted HTTP methods

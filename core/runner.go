@@ -90,7 +90,7 @@ type RunnerPool interface {
 }
 
 // Just the URL of the testing machines for now
-type TestRunnerServer struct {
+type ServerRunner struct {
 	URL   string `json:"url"`
 	alive bool
 }
@@ -133,8 +133,8 @@ type TestRunnerPool struct {
 }
 
 // Submit function to submit a commit to the URL associated to the
-// TestRunnerServer object
-func (tr TestRunnerServer) Submit(c *Commit) error {
+// ServerRunner object
+func (tr ServerRunner) Submit(c *Commit) error {
 	payload, err := json.Marshal(c)
 	if err != nil {
 		return errors.New("Unable to marshal commit")
@@ -146,15 +146,15 @@ func (tr TestRunnerServer) Submit(c *Commit) error {
 	return nil
 }
 
-func (tr TestRunnerServer) Alive() bool {
+func (tr ServerRunner) Alive() bool {
 	return tr.alive
 }
 
-func (tr TestRunnerServer) SetAlive(alive bool) {
+func (tr ServerRunner) SetAlive(alive bool) {
 	tr.alive = alive
 }
 
-func (tr TestRunnerServer) HealthCheck() {
+func (tr ServerRunner) HealthCheck() {
 	res, err := http.Get(tr.URL + "/health")
 	if err != nil || res.StatusCode != 200 {
 		tr.SetAlive(false)
@@ -201,7 +201,7 @@ func (pool *TestRunnerPool) GetCommit(repo string) (*Commit, bool) {
 	return pool.store.GetCommit(repo)
 }
 
-// Obtain a valid TestRunnerServer instance, it must be alive, using round robin
+// Obtain a valid ServerRunner instance, it must be alive, using round robin
 // to select it
 func (pool *TestRunnerPool) getRunner() (Runner, error) {
 	var index, i int = 0, 0

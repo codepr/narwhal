@@ -37,8 +37,7 @@ import (
 )
 
 // Temporary database, should be replaced with a real DB, like sqlite
-// Just carry a mapping of repository -> latest commit processed and an array
-// of TestRunnerServer servers
+// Just carry a mapping of repository -> latest commit processed
 type CommitStore struct {
 	sync.Mutex
 	repositories map[string]*Commit

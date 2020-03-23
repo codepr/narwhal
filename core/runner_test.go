@@ -50,7 +50,7 @@ func TestRunnerPoolAddRunner(t *testing.T) {
 	if pool == nil {
 		t.Errorf("NewTestRunnerPool didn't create a valid object")
 	}
-	testRunner := TestRunnerServer{"http://localhost:8989", true}
+	testRunner := ServerRunner{"http://localhost:8989", true}
 	pool.AddRunner(testRunner)
 	if len(pool.runners) == 0 {
 		t.Errorf("TestRunnerPool.AddRunner didn't work, expected 1 got 0")
@@ -81,7 +81,7 @@ func TestGetRunner(t *testing.T) {
 	if _, err := pool.getRunner(); err == nil {
 		t.Errorf("TestRunnerPool.getRunner on a supposed empty pool returned a runner")
 	}
-	pool.AddRunner(TestRunnerServer{"http://localhost:9898", true})
+	pool.AddRunner(ServerRunner{"http://localhost:9898", true})
 	if _, err := pool.getRunner(); err != nil {
 		t.Errorf("TestRunnerPool.getRunner returned a nil runner")
 	}
