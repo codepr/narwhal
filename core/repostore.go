@@ -79,7 +79,7 @@ type RunnerPool interface {
 	EnqueueCommitExecution(*Commit)
 
 	// Return the runners registered on the pool
-	Runners() []Runner
+	Runners() map[Runner]bool
 
 	// Check for health of every runner
 	HealthCheck()
@@ -89,6 +89,10 @@ type RunnerPool interface {
 
 	// Add a new runner to the pool
 	AddRunner(Runner)
+
+	// Remove an existing runner, returning a boolean true if all went ok,
+	// false if no runner was found
+	RemoveRunner(Runner)
 
 	// Update the latest processed commit on the store map
 	PutCommit(string, *Commit)
@@ -100,9 +104,9 @@ type RunnerPool interface {
 // Pool of servers to be targeted for incoming jobs (e.g. new commits to run
 // tests against)
 type TestRunnerPool struct {
-	// An array of servers, each one consists of an URL and an Alive flag which
+	// A set of servers, each one consists of an URL and an Alive flag which
 	// act as an indicator of reachability and thus availability for jobs
-	runners []Runner
+	runners map[Runner]bool
 
 	// Current is the integer sentinel to be used to select an available
 	// test-runner server to send job to using a round-robin algorithm
@@ -148,11 +152,12 @@ func (tr TestRunnerServer) HealthCheck() {
 	if err != nil || res.StatusCode != 200 {
 		tr.SetAlive(false)
 	}
+	log.Println(res.StatusCode)
 }
 
 func NewTestRunnerPool(ch chan *Commit, l *log.Logger) *TestRunnerPool {
 	pool := TestRunnerPool{
-		runners: []Runner{},
+		runners: map[Runner]bool{},
 		store: &Store{
 			repositories: map[string]*Commit{},
 		},
@@ -163,11 +168,17 @@ func NewTestRunnerPool(ch chan *Commit, l *log.Logger) *TestRunnerPool {
 	go pool.pushCommitToRunner()
 	return &pool
 }
-func (pool *TestRunnerPool) Runners() []Runner {
+
+func (pool *TestRunnerPool) Runners() map[Runner]bool {
 	return pool.runners
 }
-func (pool *TestRunnerPool) AddRunner(t Runner) {
-	pool.runners = append(pool.runners, t)
+
+func (pool *TestRunnerPool) AddRunner(r Runner) {
+	pool.runners[r] = true
+}
+
+func (pool *TestRunnerPool) RemoveRunner(r Runner) {
+	delete(pool.runners, r)
 }
 
 func (pool *TestRunnerPool) PutCommit(repo string, c *Commit) {
@@ -182,17 +193,22 @@ func (pool *TestRunnerPool) GetCommit(repo string) (*Commit, bool) {
 // Obtain a valid TestRunnerServer instance, it must be alive, using round robin
 // to select it
 func (pool *TestRunnerPool) getRunner() (Runner, error) {
-	var index int = 0
+	var index, i int = 0, 0
 	runners := len(pool.runners)
 	if runners == 0 {
 		return nil, errors.New("No runners available")
 	}
+	keys := make([]Runner, runners)
+	for k := range pool.runners {
+		keys[i] = k
+		i++
+	}
 	// Round robin
-	for index = pool.current % runners; pool.runners[index].Alive() == false; {
+	for index = pool.current % runners; keys[index].Alive() == false; {
 		index = pool.current % runners
 		pool.current++
 	}
-	return pool.runners[index], nil
+	return keys[index], nil
 }
 
 // Private function meant to be executed concurrently as a goroutine,
@@ -226,7 +242,7 @@ func (pool TestRunnerPool) Stop() {
 }
 
 func (pool TestRunnerPool) HealthCheck() {
-	for _, t := range pool.runners {
+	for t, _ := range pool.runners {
 		t.HealthCheck()
 	}
 }

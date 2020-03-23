@@ -49,9 +49,9 @@ func main() {
 		log.Fatal("Server type not supported")
 	}
 
-	var prefix string = "dispatcher -"
+	var prefix string = "[dispatcher]"
 	if serverType == core.TestRunner {
-		prefix = "runner -"
+		prefix = "[runner]"
 	}
 	commitsCh := make(chan *core.Commit)
 	logger := log.New(os.Stdout, prefix, log.LstdFlags)
