@@ -108,11 +108,13 @@ type ContainerRunner struct {
 // Pool of servers to be targeted for incoming jobs (e.g. new commits to run
 // tests against)
 type TestRunnerPool struct {
-	// Lock for avoid contention
+	// Lock to avoid contention
 	m *sync.Mutex
 
 	// A set of servers, each one consists of an URL and an Alive flag which
 	// act as an indicator of reachability and thus availability for jobs
+	// or containers to run tests in a safe and isolated environment
+	// easier to reproduce the projects own test/production environments
 	runners map[Runner]bool
 
 	// Current is the integer sentinel to be used to select an available
@@ -131,6 +133,24 @@ type TestRunnerPool struct {
 	// server ErrorLog pointer
 	logger *log.Logger
 }
+
+// Just a TestRunnerPool builder function
+func NewTestRunnerPool(ch chan *Commit, l *log.Logger) *TestRunnerPool {
+	pool := TestRunnerPool{
+		m:       new(sync.Mutex),
+		runners: map[Runner]bool{},
+		store: &CommitStore{
+			repositories: map[string]*Commit{},
+		},
+		commitsCh: ch,
+		logger:    l,
+	}
+	// Start goroutine to continually send commits incoming on the channel
+	go pool.pushCommitToRunner()
+	return &pool
+}
+
+// ServerRunner interface function imlpementations
 
 // Submit function to submit a commit to the URL associated to the
 // ServerRunner object
@@ -162,20 +182,33 @@ func (tr ServerRunner) HealthCheck() {
 	log.Println(res.StatusCode)
 }
 
-func NewTestRunnerPool(ch chan *Commit, l *log.Logger) *TestRunnerPool {
-	pool := TestRunnerPool{
-		m:       new(sync.Mutex),
-		runners: map[Runner]bool{},
-		store: &CommitStore{
-			repositories: map[string]*Commit{},
-		},
-		commitsCh: ch,
-		logger:    l,
-	}
-	// Start goroutine to continually send commits incoming on the channel
-	go pool.pushCommitToRunner()
-	return &pool
+// ContainerRunner interface functions implementations
+
+func (cr ContainerRunner) Submit(c *Commit) error {
+	// TODO
+	// ideally we want to run the code inside the container in a pure ephemeral
+	// without mapping volumes on the disk and storing any sort of state
+	return nil
 }
+
+func (cr ContainerRunner) Alive() bool {
+	return cr.state == RUNNING
+}
+
+func (cr ContainerRunner) SetAlive(alive bool) {
+	if alive == true {
+		cr.state = RUNNING
+	} else {
+		cr.state = STOPPED
+	}
+}
+
+func (cr ContainerRunner) HealthCheck() {
+	// TODO
+	// Check for docker client APIs
+}
+
+// TestRunnerPool interface function implementations
 
 func (pool *TestRunnerPool) Runners() map[Runner]bool {
 	return pool.runners
