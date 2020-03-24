@@ -30,6 +30,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"github.com/docker/docker/client"
 	"log"
 	"net/http"
 	"sync"
@@ -134,6 +135,15 @@ type TestRunnerPool struct {
 	logger *log.Logger
 }
 
+// Pool of containers
+type ContainerRunnerPool struct {
+	// Embedding TestRunnerPool as we need all those members
+	TestRunnerPool
+
+	// Docker client to manage containers on the host machine
+	c *client.Client
+}
+
 // Just a TestRunnerPool builder function
 func NewTestRunnerPool(ch chan *Commit, l *log.Logger) *TestRunnerPool {
 	pool := TestRunnerPool{
@@ -148,6 +158,29 @@ func NewTestRunnerPool(ch chan *Commit, l *log.Logger) *TestRunnerPool {
 	// Start goroutine to continually send commits incoming on the channel
 	go pool.pushCommitToRunner()
 	return &pool
+}
+
+// ContainerRunner builder func
+func NewContainerRunner(ch chan *Commit, l *log.Logger) (*ContainerRunnerPool, error) {
+	cli, err := client.NewEnvClient()
+	if err != nil {
+		return nil, err
+	}
+	pool := ContainerRunnerPool{
+		TestRunnerPool: TestRunnerPool{
+			m:       new(sync.Mutex),
+			runners: map[Runner]bool{},
+			store: &CommitStore{
+				repositories: map[string]*Commit{},
+			},
+			commitsCh: ch,
+			logger:    l,
+		},
+		c: cli,
+	}
+	// Start goroutine to continually send commits incoming on the channel
+	go pool.pushCommitToRunner()
+	return &pool, nil
 }
 
 // ServerRunner interface function imlpementations
