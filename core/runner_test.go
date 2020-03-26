@@ -26,33 +26,33 @@
 
 package core
 
-import (
-	"log"
-	"testing"
-)
+//import (
+//	"log"
+//	"testing"
+//)
 
-func newPool() *TestRunnerPool {
-	ch := make(chan *CommitJob)
-	return NewTestRunnerPool(ch, &log.Logger{})
-}
-
-func TestNewRunnerPool(t *testing.T) {
-	pool := newPool()
-	if pool == nil {
-		t.Errorf("NewTestRunnerPool didn't create a valid object")
-	}
-	pool.Stop()
-}
-
-func TestRunnerPoolAddRunner(t *testing.T) {
-	pool := newPool()
-	if pool == nil {
-		t.Errorf("NewTestRunnerPool didn't create a valid object")
-	}
-	testRunner := ServerRunner{"http://localhost:8989", true}
-	pool.AddRunner(testRunner)
-	if len(pool.runners) == 0 {
-		t.Errorf("TestRunnerPool.AddRunner didn't work, expected 1 got 0")
-	}
-	pool.Stop()
-}
+//func newPool() *TestRunnerPool {
+//	ch := make(chan *CommitJob)
+//	return NewTestRunnerPool(ch, &log.Logger{})
+//}
+//
+//func TestNewRunnerPool(t *testing.T) {
+//	pool := newPool()
+//	if pool == nil {
+//		t.Errorf("NewTestRunnerPool didn't create a valid object")
+//	}
+//	pool.Stop()
+//}
+//
+//func TestRunnerPoolAddRunner(t *testing.T) {
+//	pool := newPool()
+//	if pool == nil {
+//		t.Errorf("NewTestRunnerPool didn't create a valid object")
+//	}
+//	testRunner := ServerRunner{"http://localhost:8989", true}
+//	pool.AddRunner(testRunner)
+//	if len(pool.runners) == 0 {
+//		t.Errorf("TestRunnerPool.AddRunner didn't work, expected 1 got 0")
+//	}
+//	pool.Stop()
+//}

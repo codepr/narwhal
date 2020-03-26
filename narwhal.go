@@ -54,16 +54,13 @@ func main() {
 		prefix = "[runner]"
 	}
 	var server core.Server
-	commitQueue := make(chan *core.CommitJob)
 	logger := log.New(os.Stdout, prefix, log.LstdFlags)
 	if serverType == core.Dispatcher {
-		runnerPool := core.NewTestRunnerPool(commitQueue, logger)
+		runnerPool := core.NewRunnerPool(64, logger)
 		runnerPool.Start()
 		server = core.NewDispatcherServer(addr, logger, runnerPool, healthcheck_timeout)
 	} else {
-		images := []string{"ubuntu", "alpine"}
-		runnerPool, err := core.NewContainerRunnerPool(commitQueue, logger, images)
-		runnerPool.Start()
+		runnerPool, err := core.NewDockerPool(logger)
 		if err != nil {
 			panic(err)
 		}

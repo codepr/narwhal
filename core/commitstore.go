@@ -32,6 +32,7 @@
 package core
 
 import (
+	"strings"
 	"sync"
 	"time"
 )
@@ -44,19 +45,22 @@ type CommitStore struct {
 }
 
 type Commit struct {
-	Id         string `json:"id"`
-	Repository string `json:"repository"`
+	Id         string     `json:"id"`
+	Repository Repository `json:"repository"`
 	cTime      time.Time
 }
 
-type CommitJob struct {
-	commit *Commit
-	runner Runner
+func (c *Commit) CloneRepositoryCmd(path string) ([]string, error) {
+	cmd, err := c.Repository.CloneCommand(path)
+	if err != nil {
+		return nil, err
+	}
+	return strings.Split(cmd, " "), nil
 }
 
 func (cs *CommitStore) PutCommit(c *Commit) {
 	cs.Lock()
-	cs.repositories[c.Repository] = c
+	cs.repositories[c.Repository.Name] = c
 	cs.Unlock()
 }
 

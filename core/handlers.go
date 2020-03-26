@@ -33,7 +33,7 @@ import (
 	"time"
 )
 
-func handleCommit(pool RunnerPool) http.HandlerFunc {
+func handleDispatcherCommit(pool *RunnerPool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -53,7 +53,7 @@ func handleCommit(pool RunnerPool) http.HandlerFunc {
 				w.WriteHeader(http.StatusBadRequest)
 			} else {
 				c.cTime = time.Now()
-				if err := pool.EnqueueCommitExecution(&c); err != nil {
+				if err := pool.EnqueueCommit(&c); err != nil {
 					w.Header().Set("Content-Type", "application/json")
 					json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 				} else {
@@ -67,7 +67,7 @@ func handleCommit(pool RunnerPool) http.HandlerFunc {
 	}
 }
 
-func handleTestRunner(pool *TestRunnerPool) http.HandlerFunc {
+func handleDispatcherRunner(pool *RunnerPool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -77,7 +77,7 @@ func handleTestRunner(pool *TestRunnerPool) http.HandlerFunc {
 		case http.MethodPost:
 			// Register a new testrunner
 			decoder := json.NewDecoder(r.Body)
-			var s ServerRunner = ServerRunner{alive: true}
+			var s Runner = Runner{alive: true}
 			err := decoder.Decode(&s)
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
@@ -91,7 +91,7 @@ func handleTestRunner(pool *TestRunnerPool) http.HandlerFunc {
 		case http.MethodDelete:
 			// Unregister testrunner
 			decoder := json.NewDecoder(r.Body)
-			var s ServerRunner
+			var s Runner
 			err := decoder.Decode(&s)
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
@@ -105,12 +105,40 @@ func handleTestRunner(pool *TestRunnerPool) http.HandlerFunc {
 	}
 }
 
-func handleTestRunnerHealth(pool RunnerPool) http.HandlerFunc {
+func handleRunnerHealth(pool *DockerPool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if atomic.LoadInt32(&healthy) == 1 {
 			w.WriteHeader(http.StatusOK)
 		} else {
 			w.WriteHeader(http.StatusServiceUnavailable)
+		}
+	}
+}
+
+func handleRunnerCommit(pool *DockerPool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost:
+			// Only POST is allowed, decode the json payload and check if the
+			// received commit is elegible for a test-run of it's already been
+			// processed before
+			decoder := json.NewDecoder(r.Body)
+			var c Commit
+			err := decoder.Decode(&c)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+			} else {
+				c.cTime = time.Now()
+				if err := pool.EnqueueCommit(&c); err != nil {
+					w.Header().Set("Content-Type", "application/json")
+					json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+				} else {
+					w.WriteHeader(http.StatusOK)
+				}
+			}
+		default:
+			// 400 for unwanted HTTP methods
+			w.WriteHeader(http.StatusBadRequest)
 		}
 	}
 }
