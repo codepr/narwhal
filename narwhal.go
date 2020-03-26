@@ -53,10 +53,22 @@ func main() {
 	if serverType == core.TestRunner {
 		prefix = "[runner]"
 	}
-	commitsCh := make(chan *core.Commit)
+	var server core.Server
+	commitQueue := make(chan *core.CommitJob)
 	logger := log.New(os.Stdout, prefix, log.LstdFlags)
-	runnerPool := core.NewTestRunnerPool(commitsCh, logger)
-	server := core.NewServer(addr, logger, runnerPool, healthcheck_timeout, serverType)
+	if serverType == core.Dispatcher {
+		runnerPool := core.NewTestRunnerPool(commitQueue, logger)
+		runnerPool.Start()
+		server = core.NewDispatcherServer(addr, logger, runnerPool, healthcheck_timeout)
+	} else {
+		images := []string{"ubuntu", "alpine"}
+		runnerPool, err := core.NewContainerRunnerPool(commitQueue, logger, images)
+		runnerPool.Start()
+		if err != nil {
+			panic(err)
+		}
+		server = core.NewTestRunnerServer(addr, logger, runnerPool, healthcheck_timeout)
+	}
 
 	if err := server.Run(); err != nil {
 		logger.Fatal(err)

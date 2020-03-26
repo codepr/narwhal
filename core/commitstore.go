@@ -49,9 +49,14 @@ type Commit struct {
 	cTime      time.Time
 }
 
-func (cs *CommitStore) PutCommit(repo string, c *Commit) {
+type CommitJob struct {
+	commit *Commit
+	runner Runner
+}
+
+func (cs *CommitStore) PutCommit(c *Commit) {
 	cs.Lock()
-	cs.repositories[repo] = c
+	cs.repositories[c.Repository] = c
 	cs.Unlock()
 }
 

@@ -28,11 +28,18 @@ package core
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
+	"io"
 	"log"
 	"net/http"
+	"net/url"
+	"os"
+	"path"
 	"sync"
 )
 
@@ -45,6 +52,8 @@ const (
 	CRASHED
 	RESTARTING
 )
+
+const registryPrefix = "docker.io/library/"
 
 // Runner defines the behaviour of a generic test runner, be it a server entity
 // or a container for test execution
@@ -64,30 +73,14 @@ type Runner interface {
 }
 
 type RunnerPool interface {
-	// Enqueue commit execution
-	EnqueueCommitExecution(*Commit)
+	// Start the runner pool
+	Start()
 
-	// Return the runners registered on the pool
-	Runners() map[Runner]bool
-
-	// Check for health of every runner
-	HealthCheck()
-
-	// Stop the runner
+	// Stop the runner pool
 	Stop()
 
-	// Add a new runner to the pool
-	AddRunner(Runner)
-
-	// Remove an existing runner, returning a boolean true if all went ok,
-	// false if no runner was found
-	RemoveRunner(Runner)
-
-	// Update the latest processed commit on the store map
-	PutCommit(string, *Commit)
-
-	// Retrieve the latest commit from the store
-	GetCommit(string) (*Commit, bool)
+	// Enqueue a new commit to be executed
+	EnqueueCommitExecution(*Commit) error
 }
 
 // Just the URL of the testing machines for now
@@ -100,10 +93,11 @@ type ServerRunner struct {
 // the container and some stats/flags to describe its general status and
 // availability over time
 type ContainerRunner struct {
-	containerID  string
-	state        ContainerState
-	busy         bool
-	jobsExecuted int
+	containerID    string
+	containerImage string
+	state          ContainerState
+	busy           bool
+	jobsExecuted   int
 }
 
 // Pool of servers to be targeted for incoming jobs (e.g. new commits to run
@@ -116,7 +110,7 @@ type TestRunnerPool struct {
 	// act as an indicator of reachability and thus availability for jobs
 	// or containers to run tests in a safe and isolated environment
 	// easier to reproduce the projects own test/production environments
-	runners map[Runner]bool
+	runners map[*ServerRunner]bool
 
 	// Current is the integer sentinel to be used to select an available
 	// test-runner server to send job to using a round-robin algorithm
@@ -128,7 +122,7 @@ type TestRunnerPool struct {
 
 	// Bounded channel of type *Commit, used as a simple task queue to notify
 	// the job-dispatching goroutine to send work to selected test-runner
-	commitsCh chan *Commit
+	commitQueue chan *CommitJob
 
 	// Just a logger to uniform with the rest of the app, generally it's the
 	// server ErrorLog pointer
@@ -137,49 +131,69 @@ type TestRunnerPool struct {
 
 // Pool of containers
 type ContainerRunnerPool struct {
-	// Embedding TestRunnerPool as we need all those members
-	TestRunnerPool
+	// Lock to avoid contention
+	m *sync.Mutex
+
+	// Array of containers
+	containers []*ContainerRunner
+
+	// Current is the integer sentinel to be used to select an available
+	// test-runner server to send job to using a round-robin algorithm
+	current int
+
+	// Backgorund context to establish docker container creation deadline
+	ctx context.Context
 
 	// Docker client to manage containers on the host machine
 	c *client.Client
+
+	// Bounded channel of type *Commit, used as a simple task queue to notify
+	// the job-dispatching goroutine to send work to selected test-runner
+	commitQueue chan *CommitJob
+
+	// Just a logger to uniform with the rest of the app, generally it's the
+	// server ErrorLog pointer
+	logger *log.Logger
 }
 
 // Just a TestRunnerPool builder function
-func NewTestRunnerPool(ch chan *Commit, l *log.Logger) *TestRunnerPool {
+func NewTestRunnerPool(ch chan *CommitJob, l *log.Logger) *TestRunnerPool {
 	pool := TestRunnerPool{
 		m:       new(sync.Mutex),
-		runners: map[Runner]bool{},
+		runners: map[*ServerRunner]bool{},
 		store: &CommitStore{
 			repositories: map[string]*Commit{},
 		},
-		commitsCh: ch,
-		logger:    l,
+		commitQueue: ch,
+		logger:      l,
 	}
-	// Start goroutine to continually send commits incoming on the channel
-	go pool.pushCommitToRunner()
 	return &pool
 }
 
-// ContainerRunner builder func
-func NewContainerRunner(ch chan *Commit, l *log.Logger) (*ContainerRunnerPool, error) {
+// ContainerRunnerPool builder func
+func NewContainerRunnerPool(ch chan *CommitJob, l *log.Logger,
+	images []string) (*ContainerRunnerPool, error) {
 	cli, err := client.NewEnvClient()
 	if err != nil {
 		return nil, err
 	}
 	pool := ContainerRunnerPool{
-		TestRunnerPool: TestRunnerPool{
-			m:       new(sync.Mutex),
-			runners: map[Runner]bool{},
-			store: &CommitStore{
-				repositories: map[string]*Commit{},
-			},
-			commitsCh: ch,
-			logger:    l,
-		},
-		c: cli,
+		m:           new(sync.Mutex),
+		containers:  []*ContainerRunner{},
+		commitQueue: ch,
+		logger:      l,
+		ctx:         context.Background(),
+		c:           cli,
 	}
-	// Start goroutine to continually send commits incoming on the channel
-	go pool.pushCommitToRunner()
+	for _, img := range images {
+		container := ContainerRunner{
+			containerImage: img,
+			state:          INITING,
+			busy:           false,
+			jobsExecuted:   0,
+		}
+		pool.containers = append(pool.containers, &container)
+	}
 	return &pool, nil
 }
 
@@ -192,10 +206,15 @@ func (tr ServerRunner) Submit(c *Commit) error {
 	if err != nil {
 		return errors.New("Unable to marshal commit")
 	}
-	_, err = http.Post(tr.URL+"/repository", "application/json", bytes.NewBuffer(payload))
+	url, _ := url.Parse(tr.URL)
+	url.Path = path.Join(url.Path, "/commit")
+	log.Println("Sending req to", url.String())
+	res, err := http.Post(url.String(), "application/json", bytes.NewBuffer(payload))
+	log.Println("Sent req to", url.String())
 	if err != nil {
 		return errors.New("Unable to send test to runner")
 	}
+	log.Println(res.StatusCode)
 	return nil
 }
 
@@ -211,8 +230,9 @@ func (tr ServerRunner) HealthCheck() {
 	res, err := http.Get(tr.URL + "/health")
 	if err != nil || res.StatusCode != 200 {
 		tr.SetAlive(false)
+	} else {
+		tr.alive = true
 	}
-	log.Println(res.StatusCode)
 }
 
 // ContainerRunner interface functions implementations
@@ -221,11 +241,12 @@ func (cr ContainerRunner) Submit(c *Commit) error {
 	// TODO
 	// ideally we want to run the code inside the container in a pure ephemeral
 	// without mapping volumes on the disk and storing any sort of state
+	log.Println("Received job")
 	return nil
 }
 
 func (cr ContainerRunner) Alive() bool {
-	return cr.state == RUNNING
+	return true
 }
 
 func (cr ContainerRunner) SetAlive(alive bool) {
@@ -243,42 +264,46 @@ func (cr ContainerRunner) HealthCheck() {
 
 // TestRunnerPool interface function implementations
 
-func (pool *TestRunnerPool) Runners() map[Runner]bool {
+func (pool *TestRunnerPool) Runners() map[*ServerRunner]bool {
 	return pool.runners
 }
 
-func (pool *TestRunnerPool) AddRunner(r Runner) {
+func (pool *TestRunnerPool) AddRunner(r *ServerRunner) error {
 	pool.m.Lock()
+	if _, ok := pool.runners[r]; ok {
+		pool.m.Unlock()
+		return errors.New("Runner already present in the pool")
+	}
 	pool.runners[r] = true
 	pool.m.Unlock()
+	return nil
 }
 
-func (pool *TestRunnerPool) RemoveRunner(r Runner) {
+func (pool *TestRunnerPool) RemoveRunner(r *ServerRunner) {
 	pool.m.Lock()
 	delete(pool.runners, r)
 	pool.m.Unlock()
 }
 
-func (pool *TestRunnerPool) PutCommit(repo string, c *Commit) {
-	pool.store.PutCommit(repo, c)
-}
-
-func (pool *TestRunnerPool) GetCommit(repo string) (*Commit, bool) {
-	return pool.store.GetCommit(repo)
-}
-
-// Obtain a valid ServerRunner instance, it must be alive, using round robin
-// to select it
-func (pool *TestRunnerPool) getRunner() (Runner, error) {
+func (pool TestRunnerPool) EnqueueCommitExecution(c *Commit) error {
+	if cmt, ok := pool.store.GetCommit(c.Repository); ok {
+		if cmt.Id == c.Id {
+			return errors.New("Commit already executed")
+		}
+	}
+	pool.store.PutCommit(c)
+	// Obtain a valid ServerRunner instance, it must be alive, using round robin
+	// to select it
 	var index, i int = 0, 0
 	pool.m.Lock()
 	runners := len(pool.runners)
 	if runners == 0 {
 		pool.m.Unlock()
-		return nil, errors.New("No runners available")
+		return errors.New("No runners available")
 	}
-	keys := make([]Runner, runners)
+	keys := make([]*ServerRunner, runners)
 	for k := range pool.runners {
+		pool.logger.Println(k.URL, k.alive, k.Alive())
 		keys[i] = k
 		i++
 	}
@@ -288,41 +313,120 @@ func (pool *TestRunnerPool) getRunner() (Runner, error) {
 		pool.current++
 	}
 	pool.m.Unlock()
-	return keys[index], nil
+
+	pool.commitQueue <- &CommitJob{c, keys[index]}
+
+	return nil
 }
 
-// Private function meant to be executed concurrently as a goroutine,
-// continously polling for new commits to forward them to an alive runner
-func (pool *TestRunnerPool) pushCommitToRunner() {
-	for {
-		select {
-		case commit := <-pool.commitsCh:
-			runner, err := pool.getRunner()
+func (pool TestRunnerPool) Start() {
+	// Start goroutine to continually send commits incoming on the channel
+	// anonymous function meant to be executed concurrently as a goroutine,
+	// continously polling for new commits to forward them to an alive runner
+	go func() {
+		for {
+			commitJob, ok := <-pool.commitQueue
+			// poison pill
+			if ok == false {
+				pool.logger.Println("Closing commit queue")
+				return
+			}
+			pool.logger.Printf("Sending commit %s to runner\n",
+				commitJob.commit.Id)
+			err := commitJob.runner.Submit(commitJob.commit)
 			if err != nil {
 				pool.logger.Println(err)
-				continue
 			}
-			pool.logger.Println("Sending commit to runner")
-			err = runner.Submit(commit)
-			if err != nil {
-				pool.logger.Println(err)
-			}
-		case <-pool.commitsCh:
-			return
 		}
-	}
-}
-
-func (pool TestRunnerPool) EnqueueCommitExecution(c *Commit) {
-	pool.commitsCh <- c
+	}()
 }
 
 func (pool TestRunnerPool) Stop() {
-	close(pool.commitsCh)
+	pool.logger.Println("Stopping pool")
+	close(pool.commitQueue)
 }
 
-func (pool TestRunnerPool) HealthCheck() {
+func (pool *TestRunnerPool) HealthCheck() {
 	for t, _ := range pool.runners {
 		t.HealthCheck()
 	}
+}
+
+// ContainerRunnerPool funcs
+
+func (pool ContainerRunnerPool) Start() {
+	// Start goroutine to continually send commits incoming on the channel
+	// anonymous function meant to be executed concurrently as a goroutine,
+	// continously polling for new commits to forward them to an alive runner
+	go func() {
+		for {
+			commitJob, ok := <-pool.commitQueue
+			if ok == false {
+				pool.logger.Println("Closing commit queue")
+				return
+			}
+			pool.logger.Printf("Sending commit %s to container\n",
+				commitJob.commit.Id)
+			err := commitJob.runner.Submit(commitJob.commit)
+			if err != nil {
+				pool.logger.Println(err)
+			}
+		}
+	}()
+	pool.m.Lock()
+	for _, container := range pool.containers {
+		pool.initRunner(container)
+	}
+	pool.m.Unlock()
+}
+
+func (pool ContainerRunnerPool) Stop() {
+	close(pool.commitQueue)
+}
+
+func (pool ContainerRunnerPool) EnqueueCommitExecution(c *Commit) error {
+	// Obtain a valid ServerRunner instance, it must be alive, using round robin
+	// to select it
+	var index int = 0
+	pool.m.Lock()
+	containers := len(pool.containers)
+	if containers == 0 {
+		pool.m.Unlock()
+		return errors.New("No containers available")
+	}
+	// Round robin
+	for index = pool.current % containers; pool.containers[index].Alive() == false; {
+		index = pool.current % containers
+		pool.current++
+	}
+	pool.m.Unlock()
+
+	pool.commitQueue <- &CommitJob{c, pool.containers[index]}
+	log.Printf("Commit sent to %s container\n", pool.containers[index].containerID)
+
+	return nil
+}
+
+func (pool *ContainerRunnerPool) initRunner(cr *ContainerRunner) error {
+	reader, err := pool.c.ImagePull(pool.ctx, registryPrefix+cr.containerImage,
+		types.ImagePullOptions{})
+	if err != nil {
+		return err
+	}
+	io.Copy(os.Stdout, reader)
+	resp, err := pool.c.ContainerCreate(pool.ctx, &container.Config{
+		Image: cr.containerImage,
+	}, nil, nil, "")
+	if err != nil {
+		return err
+	}
+
+	if err := pool.c.ContainerStart(pool.ctx, resp.ID,
+		types.ContainerStartOptions{}); err != nil {
+		return err
+	}
+
+	cr.state = RUNNING
+
+	return nil
 }

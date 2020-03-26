@@ -51,18 +51,15 @@ func handleCommit(pool RunnerPool) http.HandlerFunc {
 			err := decoder.Decode(&c)
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
-			}
-			c.cTime = time.Now()
-			if cmt, ok := pool.GetCommit(c.Repository); ok {
-				if cmt.Id != c.Id {
-					pool.PutCommit(c.Repository, &c)
-					pool.EnqueueCommitExecution(&c)
-				}
 			} else {
-				pool.PutCommit(c.Repository, &c)
-				pool.EnqueueCommitExecution(&c)
+				c.cTime = time.Now()
+				if err := pool.EnqueueCommitExecution(&c); err != nil {
+					w.Header().Set("Content-Type", "application/json")
+					json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+				} else {
+					w.WriteHeader(http.StatusOK)
+				}
 			}
-			w.WriteHeader(http.StatusOK)
 		default:
 			// 400 for unwanted HTTP methods
 			w.WriteHeader(http.StatusBadRequest)
@@ -70,7 +67,7 @@ func handleCommit(pool RunnerPool) http.HandlerFunc {
 	}
 }
 
-func handleTestRunner(pool RunnerPool) http.HandlerFunc {
+func handleTestRunner(pool *TestRunnerPool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -80,14 +77,17 @@ func handleTestRunner(pool RunnerPool) http.HandlerFunc {
 		case http.MethodPost:
 			// Register a new testrunner
 			decoder := json.NewDecoder(r.Body)
-			var s ServerRunner
+			var s ServerRunner = ServerRunner{alive: true}
 			err := decoder.Decode(&s)
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
 			}
-			s.SetAlive(true)
-			pool.AddRunner(s)
-			w.WriteHeader(http.StatusOK)
+			//s.SetAlive(true)
+			if err := pool.AddRunner(&s); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+			} else {
+				w.WriteHeader(http.StatusOK)
+			}
 		case http.MethodDelete:
 			// Unregister testrunner
 			decoder := json.NewDecoder(r.Body)
@@ -96,7 +96,7 @@ func handleTestRunner(pool RunnerPool) http.HandlerFunc {
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
 			}
-			pool.RemoveRunner(s)
+			pool.RemoveRunner(&s)
 			w.WriteHeader(http.StatusNoContent)
 		default:
 			// 400 for unwanted HTTP methods

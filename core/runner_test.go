@@ -29,11 +29,10 @@ package core
 import (
 	"log"
 	"testing"
-	"time"
 )
 
 func newPool() *TestRunnerPool {
-	ch := make(chan *Commit)
+	ch := make(chan *CommitJob)
 	return NewTestRunnerPool(ch, &log.Logger{})
 }
 
@@ -54,36 +53,6 @@ func TestRunnerPoolAddRunner(t *testing.T) {
 	pool.AddRunner(testRunner)
 	if len(pool.runners) == 0 {
 		t.Errorf("TestRunnerPool.AddRunner didn't work, expected 1 got 0")
-	}
-	pool.Stop()
-}
-
-func TestPutCommit(t *testing.T) {
-	pool := newPool()
-	if pool == nil {
-		t.Errorf("NewTestRunnerPool didn't create a valid object")
-	}
-	commit := Commit{"abcd123", "testrepo", time.Now().UTC()}
-	pool.PutCommit("testrepo", &commit)
-	if c, ok := pool.GetCommit("testrepo"); ok {
-		if c != &commit {
-			t.Errorf("TestRunnerPool.PutCommit didn't work")
-		}
-	}
-	pool.Stop()
-}
-
-func TestGetRunner(t *testing.T) {
-	pool := newPool()
-	if pool == nil {
-		t.Errorf("NewTestRunnerPool didn't create a valid object")
-	}
-	if _, err := pool.getRunner(); err == nil {
-		t.Errorf("TestRunnerPool.getRunner on a supposed empty pool returned a runner")
-	}
-	pool.AddRunner(ServerRunner{"http://localhost:9898", true})
-	if _, err := pool.getRunner(); err != nil {
-		t.Errorf("TestRunnerPool.getRunner returned a nil runner")
 	}
 	pool.Stop()
 }

@@ -69,7 +69,7 @@ type DispatcherServer struct {
 	// runnerPool is a pool of RunnerPool type, specifically a DispatcherServer
 	// exptects them to be of type TestRunnerPool, representing remote servers
 	// located by an URL
-	runnerPool RunnerPool
+	runnerPool *TestRunnerPool
 
 	// healthcheck_ch is a channel that acts as a helm to managing a periodic
 	// check on health status of each runner
@@ -88,10 +88,10 @@ type RunnerServer struct {
 	// runnerPool is a pool of RunnerPool type, specifically a DispatcherServer
 	// exptects them to be of type ContainerRunnerPool, representing a pool of
 	// docker containers to run tests inside. Meant to be pre-allocated.
-	runnerPool RunnerPool
+	runnerPool *ContainerRunnerPool
 }
 
-func dispatcherNewRouter(r RunnerPool) *http.ServeMux {
+func dispatcherNewRouter(r *TestRunnerPool) *http.ServeMux {
 	router := http.NewServeMux()
 	router.Handle("/runner", handleTestRunner(r))
 	router.Handle("/commit", handleCommit(r))
@@ -101,43 +101,43 @@ func dispatcherNewRouter(r RunnerPool) *http.ServeMux {
 func runnerNewRouter(r RunnerPool) *http.ServeMux {
 	router := http.NewServeMux()
 	router.Handle("/health", handleTestRunnerHealth(r))
+	router.Handle("/commit", handleCommit(r))
 	return router
 }
 
 // Factory function, return a Server instance based on serverType argument
-func NewServer(addr string, l *log.Logger,
-	r RunnerPool, ts time.Duration, serverType int) Server {
-	switch serverType {
-	case Dispatcher:
-		return &DispatcherServer{
-			server: &http.Server{
-				Addr:           addr,
-				Handler:        logReq(l)(dispatcherNewRouter(r)),
-				ErrorLog:       l,
-				ReadTimeout:    5 * time.Second,
-				WriteTimeout:   10 * time.Second,
-				IdleTimeout:    30 * time.Second,
-				MaxHeaderBytes: 1 << 20,
-			},
-			runnerPool:          r,
-			healthcheck_timeout: ts,
-			healthcheck_ch:      make(chan bool),
-		}
-	case TestRunner:
-		return &RunnerServer{
-			server: &http.Server{
-				Addr:           addr,
-				Handler:        logReq(l)(runnerNewRouter(r)),
-				ErrorLog:       l,
-				ReadTimeout:    5 * time.Second,
-				WriteTimeout:   10 * time.Second,
-				IdleTimeout:    30 * time.Second,
-				MaxHeaderBytes: 1 << 20,
-			},
-			runnerPool: r,
-		}
+func NewDispatcherServer(addr string, l *log.Logger,
+	r *TestRunnerPool, ts time.Duration) Server {
+	return &DispatcherServer{
+		server: &http.Server{
+			Addr:           addr,
+			Handler:        logReq(l)(dispatcherNewRouter(r)),
+			ErrorLog:       l,
+			ReadTimeout:    5 * time.Second,
+			WriteTimeout:   10 * time.Second,
+			IdleTimeout:    30 * time.Second,
+			MaxHeaderBytes: 1 << 20,
+		},
+		runnerPool:          r,
+		healthcheck_timeout: ts,
+		healthcheck_ch:      make(chan bool),
 	}
-	return nil
+}
+
+func NewTestRunnerServer(addr string, l *log.Logger,
+	r *ContainerRunnerPool, ts time.Duration) Server {
+	return &RunnerServer{
+		server: &http.Server{
+			Addr:           addr,
+			Handler:        logReq(l)(runnerNewRouter(r)),
+			ErrorLog:       l,
+			ReadTimeout:    5 * time.Second,
+			WriteTimeout:   10 * time.Second,
+			IdleTimeout:    30 * time.Second,
+			MaxHeaderBytes: 1 << 20,
+		},
+		runnerPool: r,
+	}
 }
 
 func (s *DispatcherServer) Run() error {
