@@ -28,8 +28,6 @@ package core
 
 import (
 	"context"
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 )
 
@@ -39,8 +37,7 @@ const (
 )
 
 type Container interface {
-	Image() string
-	Cmd() ([]string, error)
+	RunInContainer(*context.Context, *client.Client) error
 }
 
 func RunContainer(c Container) <-chan error {
@@ -53,29 +50,8 @@ func RunContainer(c Container) <-chan error {
 			ch <- err
 			return
 		}
-		_, err = cli.ImagePull(ctx, registry+c.Image(), types.ImagePullOptions{})
-		if err != nil {
+		if err = c.RunInContainer(&ctx, cli); err != nil {
 			ch <- err
-			return
-		}
-		cmd, err := c.Cmd()
-		if err != nil {
-			ch <- err
-			return
-		}
-		resp, err := cli.ContainerCreate(ctx, &container.Config{
-			Image: image,
-			Cmd:   cmd,
-		}, nil, nil, "")
-		if err != nil {
-			ch <- err
-			return
-		}
-
-		if err := cli.ContainerStart(ctx, resp.ID,
-			types.ContainerStartOptions{}); err != nil {
-			ch <- err
-			return
 		}
 	}()
 	return ch

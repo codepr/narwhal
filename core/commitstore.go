@@ -32,6 +32,10 @@
 package core
 
 import (
+	"context"
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/client"
 	"strings"
 	"sync"
 	"time"
@@ -46,13 +50,34 @@ type CommitStore struct {
 
 type Commit struct {
 	Id         string     `json:"id"`
+	Language   string     `json:"language"`
 	Repository Repository `json:"repository"`
 	cTime      time.Time
 }
 
-func (c *Commit) Image() string {
+func (c *Commit) RunInContainer(ctx *context.Context, cli *client.Client) error {
 	// TODO stub
-	return "ubuntu"
+	_, err := cli.ImagePull(*ctx, registry+"ubuntu", types.ImagePullOptions{})
+	if err != nil {
+		return err
+	}
+	cmd, err := c.Cmd()
+	if err != nil {
+		return err
+	}
+	resp, err := cli.ContainerCreate(*ctx, &container.Config{
+		Image: image,
+		Cmd:   cmd,
+	}, nil, nil, "")
+	if err != nil {
+		return err
+	}
+
+	if err := cli.ContainerStart(*ctx, resp.ID,
+		types.ContainerStartOptions{}); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (c *Commit) Cmd() ([]string, error) {
