@@ -61,15 +61,18 @@ type Server interface {
 	Run() error
 }
 
+func runServer(s Server) error {
+	return s.Run()
+}
+
 type DispatcherServer struct {
 	// server is a pointer to a builtin library http.Server, listen on a
 	// host:port tuple and expose some REST APIs
 	server *http.Server
 
-	// runnerPool is a pool of RunnerPool type, specifically a DispatcherServer
-	// exptects them to be of type TestRunnerPool, representing remote servers
-	// located by an URL
-	pool *RunnerPool
+	// Registry just tracks and manage the runner units, each one representing
+	// remote servers located by an URL
+	registry *RunnerRegistry
 
 	// healthcheck_ch is a channel that acts as a helm to managing a periodic
 	// check on health status of each runner
@@ -84,59 +87,52 @@ type RunnerServer struct {
 	// server is a pointer to a builtin library http.Server, listen on a
 	// host:port tuple and expose some REST APIs
 	server *http.Server
-
-	// runnerPool is a pool of RunnerPool type, specifically a DispatcherServer
-	// exptects them to be of type ContainerRunnerPool, representing a pool of
-	// docker containers to run tests inside. Meant to be pre-allocated.
-	pool *DockerPool
 }
 
-func dispatcherNewRouter(r *RunnerPool) *http.ServeMux {
+func newDispatcherRouter(r *RunnerRegistry) *http.ServeMux {
 	router := http.NewServeMux()
 	router.Handle("/runner", handleDispatcherRunner(r))
 	router.Handle("/commit", handleDispatcherCommit(r))
 	return router
 }
 
-func runnerNewRouter(r *DockerPool) *http.ServeMux {
+func newRunnerRouter() *http.ServeMux {
 	router := http.NewServeMux()
-	router.Handle("/health", handleRunnerHealth(r))
-	router.Handle("/commit", handleRunnerCommit(r))
+	router.Handle("/health", handleRunnerHealth())
+	router.Handle("/commit", handleRunnerCommit())
 	return router
 }
 
 // Factory function, return a Server instance based on serverType argument
 func NewDispatcherServer(addr string, l *log.Logger,
-	r *RunnerPool, ts time.Duration) Server {
+	r *RunnerRegistry, ts time.Duration) Server {
 	return &DispatcherServer{
 		server: &http.Server{
 			Addr:           addr,
-			Handler:        logReq(l)(dispatcherNewRouter(r)),
+			Handler:        logReq(l)(newDispatcherRouter(r)),
 			ErrorLog:       l,
 			ReadTimeout:    5 * time.Second,
 			WriteTimeout:   10 * time.Second,
 			IdleTimeout:    30 * time.Second,
 			MaxHeaderBytes: 1 << 20,
 		},
-		pool:                r,
+		registry:            r,
 		healthcheck_timeout: ts,
 		healthcheck_ch:      make(chan bool),
 	}
 }
 
-func NewTestRunnerServer(addr string, l *log.Logger,
-	r *DockerPool, ts time.Duration) Server {
+func NewTestRunnerServer(addr string, l *log.Logger) Server {
 	return &RunnerServer{
 		server: &http.Server{
 			Addr:           addr,
-			Handler:        logReq(l)(runnerNewRouter(r)),
+			Handler:        logReq(l)(newRunnerRouter()),
 			ErrorLog:       l,
 			ReadTimeout:    5 * time.Second,
 			WriteTimeout:   10 * time.Second,
 			IdleTimeout:    30 * time.Second,
 			MaxHeaderBytes: 1 << 20,
 		},
-		pool: r,
 	}
 }
 
@@ -144,6 +140,7 @@ func (s *DispatcherServer) Run() error {
 	done := make(chan bool)
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	s.registry.Start()
 
 	go func() {
 		<-quit
@@ -151,7 +148,7 @@ func (s *DispatcherServer) Run() error {
 		// Stop the healthcheck goroutine
 		s.healthcheck_ch <- true
 		// Stop push pushCommit goroutine
-		s.pool.Stop()
+		s.registry.Stop()
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		s.server.SetKeepAlivesEnabled(false)
@@ -209,7 +206,7 @@ func (s *DispatcherServer) runnersHealthcheck() {
 			ticker.Stop()
 			return
 		case <-ticker.C:
-			s.pool.HealthCheck()
+			s.registry.HealthCheck()
 		}
 	}
 }

@@ -33,7 +33,7 @@ import (
 	"time"
 )
 
-func handleDispatcherCommit(pool *RunnerPool) http.HandlerFunc {
+func handleDispatcherCommit(registry *RunnerRegistry) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -53,7 +53,7 @@ func handleDispatcherCommit(pool *RunnerPool) http.HandlerFunc {
 				w.WriteHeader(http.StatusBadRequest)
 			} else {
 				c.cTime = time.Now()
-				if err := pool.EnqueueCommit(&c); err != nil {
+				if err := registry.EnqueueCommit(&c); err != nil {
 					w.Header().Set("Content-Type", "application/json")
 					json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 				} else {
@@ -61,19 +61,19 @@ func handleDispatcherCommit(pool *RunnerPool) http.HandlerFunc {
 				}
 			}
 		default:
-			// 400 for unwanted HTTP methods
-			w.WriteHeader(http.StatusBadRequest)
+			// 405 for unwanted HTTP methods
+			w.WriteHeader(http.StatusMethodNotAllowed)
 		}
 	}
 }
 
-func handleDispatcherRunner(pool *RunnerPool) http.HandlerFunc {
+func handleDispatcherRunner(registry *RunnerRegistry) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			// Return a list of already registered testrunners
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(pool.Runners())
+			json.NewEncoder(w).Encode(registry.Runners())
 		case http.MethodPost:
 			// Register a new testrunner
 			decoder := json.NewDecoder(r.Body)
@@ -82,8 +82,7 @@ func handleDispatcherRunner(pool *RunnerPool) http.HandlerFunc {
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
 			}
-			//s.SetAlive(true)
-			if err := pool.AddRunner(&s); err != nil {
+			if err := registry.AddRunner(&s); err != nil {
 				w.WriteHeader(http.StatusBadRequest)
 			} else {
 				w.WriteHeader(http.StatusOK)
@@ -96,16 +95,16 @@ func handleDispatcherRunner(pool *RunnerPool) http.HandlerFunc {
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
 			}
-			pool.RemoveRunner(&s)
+			registry.RemoveRunner(&s)
 			w.WriteHeader(http.StatusNoContent)
 		default:
-			// 400 for unwanted HTTP methods
-			w.WriteHeader(http.StatusBadRequest)
+			// 405 for unwanted HTTP methods
+			w.WriteHeader(http.StatusMethodNotAllowed)
 		}
 	}
 }
 
-func handleRunnerHealth(pool *DockerPool) http.HandlerFunc {
+func handleRunnerHealth() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if atomic.LoadInt32(&healthy) == 1 {
 			w.WriteHeader(http.StatusOK)
@@ -115,7 +114,7 @@ func handleRunnerHealth(pool *DockerPool) http.HandlerFunc {
 	}
 }
 
-func handleRunnerCommit(pool *DockerPool) http.HandlerFunc {
+func handleRunnerCommit() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
@@ -129,7 +128,8 @@ func handleRunnerCommit(pool *DockerPool) http.HandlerFunc {
 				w.WriteHeader(http.StatusBadRequest)
 			} else {
 				c.cTime = time.Now()
-				if err := pool.EnqueueCommit(&c); err != nil {
+				errCh := RunContainer(&c)
+				if err := <-errCh; err != nil {
 					w.Header().Set("Content-Type", "application/json")
 					json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 				} else {

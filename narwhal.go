@@ -56,15 +56,10 @@ func main() {
 	var server core.Server
 	logger := log.New(os.Stdout, prefix, log.LstdFlags)
 	if serverType == core.Dispatcher {
-		runnerPool := core.NewRunnerPool(64, logger)
-		runnerPool.Start()
+		runnerPool := core.NewRunnerRegistry(64, logger)
 		server = core.NewDispatcherServer(addr, logger, runnerPool, healthcheck_timeout)
 	} else {
-		runnerPool, err := core.NewDockerPool(logger)
-		if err != nil {
-			panic(err)
-		}
-		server = core.NewTestRunnerServer(addr, logger, runnerPool, healthcheck_timeout)
+		server = core.NewTestRunnerServer(addr, logger)
 	}
 
 	if err := server.Run(); err != nil {

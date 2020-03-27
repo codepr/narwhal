@@ -24,54 +24,59 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-// Commitstore is the domain model of the dispatcher part of the application
-// comprised of Commit, a simple abstraction over what we find useful to
-// describe a commit and a CommitStore, which act as in-memory DB of the
-// repositories tracked and their last processed commit
-
 package core
 
 import (
-	"strings"
-	"sync"
-	"time"
+	"context"
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/client"
 )
 
-// Temporary database, should be replaced with a real DB, like sqlite
-// Just carry a mapping of repository -> latest commit processed
-type CommitStore struct {
-	sync.Mutex
-	repositories map[string]*Commit
+const (
+	registry string = "docker.io/library/"
+	image    string = "ubuntu"
+)
+
+type Container interface {
+	Image() string
+	Cmd() ([]string, error)
 }
 
-type Commit struct {
-	Id         string     `json:"id"`
-	Repository Repository `json:"repository"`
-	cTime      time.Time
-}
+func RunContainer(c Container) <-chan error {
+	ch := make(chan error)
+	go func() {
+		defer close(ch)
+		ctx := context.Background()
+		cli, err := client.NewEnvClient()
+		if err != nil {
+			ch <- err
+			return
+		}
+		_, err = cli.ImagePull(ctx, registry+c.Image(), types.ImagePullOptions{})
+		if err != nil {
+			ch <- err
+			return
+		}
+		cmd, err := c.Cmd()
+		if err != nil {
+			ch <- err
+			return
+		}
+		resp, err := cli.ContainerCreate(ctx, &container.Config{
+			Image: image,
+			Cmd:   cmd,
+		}, nil, nil, "")
+		if err != nil {
+			ch <- err
+			return
+		}
 
-func (c *Commit) Image() string {
-	// TODO stub
-	return "ubuntu"
-}
-
-func (c *Commit) Cmd() ([]string, error) {
-	cmd, err := c.Repository.CloneCommand("/" + c.Id)
-	if err != nil {
-		return nil, err
-	}
-	return strings.Split(cmd, " "), nil
-}
-
-func (cs *CommitStore) PutCommit(c *Commit) {
-	cs.Lock()
-	cs.repositories[c.Repository.Name] = c
-	cs.Unlock()
-}
-
-func (cs *CommitStore) GetCommit(repo string) (*Commit, bool) {
-	cs.Lock()
-	val, ok := cs.repositories[repo]
-	cs.Unlock()
-	return val, ok
+		if err := cli.ContainerStart(ctx, resp.ID,
+			types.ContainerStartOptions{}); err != nil {
+			ch <- err
+			return
+		}
+	}()
+	return ch
 }
