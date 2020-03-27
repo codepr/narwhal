@@ -72,7 +72,6 @@ type RunnerPool struct {
 }
 
 type DockerPool struct {
-	ctx    context.Context
 	c      *client.Client
 	logger *log.Logger
 }
@@ -195,15 +194,14 @@ func NewDockerPool(l *log.Logger) (*DockerPool, error) {
 	}
 	pool := DockerPool{
 		logger: l,
-		ctx:    context.Background(),
 		c:      cli,
 	}
 	return &pool, nil
 }
 
 func (pool *DockerPool) RunContainer(c *Commit) error {
-	_, err := pool.c.ImagePull(pool.ctx, registry+image,
-		types.ImagePullOptions{})
+	ctx := context.Background()
+	_, err := pool.c.ImagePull(ctx, registry+image, types.ImagePullOptions{})
 	if err != nil {
 		return err
 	}
@@ -211,7 +209,7 @@ func (pool *DockerPool) RunContainer(c *Commit) error {
 	if err != nil {
 		return err
 	}
-	resp, err := pool.c.ContainerCreate(pool.ctx, &container.Config{
+	resp, err := pool.c.ContainerCreate(ctx, &container.Config{
 		Image: image,
 		Cmd:   cmd,
 	}, nil, nil, "")
@@ -219,7 +217,7 @@ func (pool *DockerPool) RunContainer(c *Commit) error {
 		return err
 	}
 
-	if err := pool.c.ContainerStart(pool.ctx, resp.ID,
+	if err := pool.c.ContainerStart(ctx, resp.ID,
 		types.ContainerStartOptions{}); err != nil {
 		return err
 	}
