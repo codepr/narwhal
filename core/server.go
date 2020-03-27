@@ -61,7 +61,7 @@ type Server interface {
 	Run() error
 }
 
-func runServer(s Server) error {
+func RunServer(s Server) error {
 	return s.Run()
 }
 
@@ -96,10 +96,10 @@ func newDispatcherRouter(r *RunnerRegistry) *http.ServeMux {
 	return router
 }
 
-func newRunnerRouter() *http.ServeMux {
+func newRunnerRouter(l *log.Logger) *http.ServeMux {
 	router := http.NewServeMux()
-	router.Handle("/health", handleRunnerHealth())
-	router.Handle("/commit", handleRunnerCommit())
+	router.Handle("/health", handleRunnerHealth(l))
+	router.Handle("/commit", handleRunnerCommit(l))
 	return router
 }
 
@@ -126,7 +126,7 @@ func NewTestRunnerServer(addr string, l *log.Logger) Server {
 	return &RunnerServer{
 		server: &http.Server{
 			Addr:           addr,
-			Handler:        logReq(l)(newRunnerRouter()),
+			Handler:        logReq(l)(newRunnerRouter(l)),
 			ErrorLog:       l,
 			ReadTimeout:    5 * time.Second,
 			WriteTimeout:   10 * time.Second,

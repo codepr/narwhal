@@ -28,6 +28,7 @@ package core
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"sync/atomic"
 	"time"
@@ -104,7 +105,7 @@ func handleDispatcherRunner(registry *RunnerRegistry) http.HandlerFunc {
 	}
 }
 
-func handleRunnerHealth() http.HandlerFunc {
+func handleRunnerHealth(l *log.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if atomic.LoadInt32(&healthy) == 1 {
 			w.WriteHeader(http.StatusOK)
@@ -114,7 +115,7 @@ func handleRunnerHealth() http.HandlerFunc {
 	}
 }
 
-func handleRunnerCommit() http.HandlerFunc {
+func handleRunnerCommit(l *log.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
@@ -128,6 +129,7 @@ func handleRunnerCommit() http.HandlerFunc {
 				w.WriteHeader(http.StatusBadRequest)
 			} else {
 				c.cTime = time.Now()
+				l.Printf("Running container for repository: %v\n", c.Repository.Name)
 				errCh := RunContainer(&c)
 				if err := <-errCh; err != nil {
 					w.Header().Set("Content-Type", "application/json")

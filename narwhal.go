@@ -62,7 +62,7 @@ func main() {
 		server = core.NewTestRunnerServer(addr, logger)
 	}
 
-	if err := server.Run(); err != nil {
+	if err := core.RunServer(server); err != nil {
 		logger.Fatal(err)
 	}
 }
