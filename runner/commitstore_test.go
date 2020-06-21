@@ -32,8 +32,8 @@ import (
 )
 
 func TestPutCommit(t *testing.T) {
-	store := CommitStore{repositories: map[string]*Commit{}}
-	commit := Commit{Repository: Repository{Name: "test-repo"}}
+	store := CommitStore{repositories: map[string]*CommitJob{}}
+	commit := CommitJob{Repository: Repository{Name: "test-repo"}}
 	store.PutCommit(&commit)
 	if len(store.repositories) == 0 {
 		t.Errorf("PutCommit didn't add a commit before it existed in the store")
@@ -42,7 +42,7 @@ func TestPutCommit(t *testing.T) {
 	if len(store.repositories) == 0 || len(store.repositories) > 1 {
 		t.Errorf("PutCommit didn't overwrite a commit that already existed in the store")
 	}
-	commitTwo := Commit{Repository: Repository{Name: "new-test-repo"}}
+	commitTwo := CommitJob{Repository: Repository{Name: "new-test-repo"}}
 	store.PutCommit(&commitTwo)
 	if len(store.repositories) < 2 {
 		t.Errorf("PutCommit didn't add a commit before it existed in the store")
@@ -50,8 +50,8 @@ func TestPutCommit(t *testing.T) {
 }
 
 func TestGetCommit(t *testing.T) {
-	store := CommitStore{repositories: map[string]*Commit{}}
-	commit := Commit{Repository: Repository{Name: "test-repo"}}
+	store := CommitStore{repositories: map[string]*CommitJob{}}
+	commit := CommitJob{Repository: Repository{Name: "test-repo"}}
 	store.PutCommit(&commit)
 	if _, ok := store.GetCommit("test-repo"); ok == false {
 		t.Errorf("GetCommit failed to fetch the commit")
@@ -71,16 +71,20 @@ func equalStringSlices(a []string, b []string) bool {
 }
 
 func TestCmd(t *testing.T) {
-	commit := Commit{
+	commit := CommitJob{
 		Id: "ab23f",
 		Repository: Repository{
 			Name:           "johndoe/test-repo",
 			HostingService: "github",
 			Branch:         "master",
 		},
+		Specs: JobSpec{
+			Dependencies: []string{"gcc", "g++"},
+			Cmd:          "make",
+		},
 	}
 	cmd, err := commit.Cmd()
-	expected := strings.Split("git clone -b master https://github.com/johndoe/test-repo /ab23f", " ")
+	expected := strings.Split("sh -c apt-get update && apt-get install -y gcc g++ && git clone -b master https://github.com/johndoe/test-repo /ab23f && make", " ")
 	if err != nil {
 		t.Errorf("Cmd errored: %s", err)
 	} else {

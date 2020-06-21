@@ -79,7 +79,7 @@ func (r *Runner) ExecuteCommitJob(c CommitJob, jr *CommitJobReply) error {
 			return
 		}
 		// TODO stub
-		_, err = cli.ImagePull(ctx, registry+"ubuntu", types.ImagePullOptions{})
+		_, err = cli.ImagePull(ctx, registry+image, types.ImagePullOptions{})
 		if err != nil {
 			return
 		}

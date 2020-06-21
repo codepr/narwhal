@@ -32,6 +32,7 @@
 package runner
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 )
@@ -47,6 +48,12 @@ type CommitJob struct {
 	Id         string     `json:"id"`
 	Language   string     `json:"language"`
 	Repository Repository `json:"repository"`
+	Specs      JobSpec    `json:"spec"`
+}
+
+type JobSpec struct {
+	Dependencies []string `json:"dependencies"`
+	Cmd          string   `json:"command"`
 }
 
 type CommitJobReply struct {
@@ -54,10 +61,12 @@ type CommitJobReply struct {
 }
 
 func (c *CommitJob) Cmd() ([]string, error) {
-	cmd, err := c.Repository.CloneCommand("/" + c.Id)
+	cloneCmd, err := c.Repository.CloneCommand("/" + c.Id)
 	if err != nil {
 		return nil, err
 	}
+	cmd := fmt.Sprintf("sh -c apt-get update && apt-get install -y %s && %s && %s",
+		strings.Join(c.Specs.Dependencies, " "), cloneCmd, c.Specs.Cmd)
 	return strings.Split(cmd, " "), nil
 }
 
