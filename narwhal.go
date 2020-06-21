@@ -28,38 +28,40 @@ package main
 
 import (
 	"flag"
-	"github.com/codepr/narwhal/core"
+	"github.com/codepr/narwhal/runner"
+	core "github.com/codepr/narwhal/server"
 	"log"
 	"os"
 )
 
-const healthcheck_timeout = 1
-
 var (
-	addr       string
-	serverType int
+	addr, dispatcherUrl string
+	serverType          int
 )
 
 func main() {
 	flag.StringVar(&addr, "addr", ":28919", "Server listening address")
-	flag.IntVar(&serverType, "type", core.Dispatcher, "Server type, can be either 0 (Dispatcher) or 1 (Runner)")
+	flag.IntVar(&serverType, "type", core.Dispatcher,
+		"Server type, can be either 0 (Dispatcher) or 1 (Runner)")
+	flag.StringVar(&dispatcherUrl, "dispatcher",
+		"http://localhost:28919/runner", "Dispatcher URL")
 	flag.Parse()
 
 	if serverType < 0 || serverType > 1 {
 		log.Fatal("Server type not supported")
 	}
 
-	var prefix string = "[dispatcher]"
+	var prefix string = "[dispatcher] "
 	if serverType == core.TestRunner {
-		prefix = "[runner]"
+		prefix = "[runner] "
 	}
 	var server core.Server
 	logger := log.New(os.Stdout, prefix, log.LstdFlags)
 	if serverType == core.Dispatcher {
-		runnerPool := core.NewRunnerRegistry(64, logger)
-		server = core.NewDispatcherServer(addr, logger, runnerPool, healthcheck_timeout)
+		runnerPool := runner.NewRunnerRegistry(logger)
+		server = core.NewDispatcherServer(addr, logger, runnerPool)
 	} else {
-		server = core.NewTestRunnerServer(addr, logger)
+		server = core.NewRunnerServer(addr, dispatcherUrl)
 	}
 
 	if err := core.RunServer(server); err != nil {

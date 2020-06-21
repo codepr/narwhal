@@ -24,34 +24,37 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-package core
+package runner
 
 import (
-	"bytes"
-	"encoding/json"
+	"context"
 	"errors"
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/client"
 	"log"
-	"net/http"
-	"net/url"
-	"path"
+	"net/rpc"
 	"sync"
+)
+
+const (
+	registry string = "docker.io/library/"
+	image    string = "ubuntu"
 )
 
 // Runner represents a worker unit on the network, it is identified by an URL,
 // a commit-path (usually /commit) and an health-path for the healthcheck
 // calls
 type Runner struct {
-	URL        string `json:"url"`
-	CommitPath string `json:"commitpath"`
-	HealthPath string `json:"healthpath"`
-	alive      bool
+	Addr      string `json:"addr"`
+	rpcClient *rpc.Client
 }
 
 // A central registry for all the registered runners, all runners operations
 // should pass through this struct
 type RunnerRegistry struct {
 	// Lock to avoid contention
-	m *sync.Mutex
+	sync.Mutex
 	// A set of servers, each one consists of an URL and an Alive flag which
 	// act as an indicator of reachability and thus availability for jobs
 	// or containers to run tests in a safe and isolated environment
@@ -63,72 +66,52 @@ type RunnerRegistry struct {
 	// Store is just a pointer to a map of repositories -> commits. Each commit
 	// value is updated at the last executed one
 	store *CommitStore
-	// Bounded channel of type *Commit, used as a simple task queue to notify
-	// the job-dispatching goroutine to send work to selected test-runner
-	commitQueue chan *Commit
-	// Number of worker goroutine to start at init
-	workers int
 	// Just a logger to uniform with the rest of the app, generally it's the
 	// server ErrorLog pointer
 	logger *log.Logger
 }
 
-func (r *Runner) Forward(c *Commit) error {
-	payload, err := json.Marshal(c)
-	if err != nil {
-		return errors.New("Unable to marshal commit")
-	}
-	url, _ := url.Parse(r.URL)
-	url.Path = path.Join(url.Path, r.CommitPath)
-	_, err = http.Post(url.String(), "application/json", bytes.NewBuffer(payload))
-	if err != nil {
-		return errors.New("Unable to send test to runner")
-	}
+func (r *Runner) ExecuteCommitJob(c CommitJob, jr *CommitJobReply) error {
+	go func() {
+		ctx := context.Background()
+		cli, err := client.NewEnvClient()
+		if err != nil {
+			return
+		}
+		// TODO stub
+		_, err = cli.ImagePull(ctx, registry+"ubuntu", types.ImagePullOptions{})
+		if err != nil {
+			return
+		}
+		cmd, err := c.Cmd()
+		if err != nil {
+			return
+		}
+		resp, err := cli.ContainerCreate(ctx, &container.Config{
+			Image: image,
+			Cmd:   cmd,
+		}, nil, nil, "")
+		if err != nil {
+			return
+		}
+
+		if err := cli.ContainerStart(ctx, resp.ID,
+			types.ContainerStartOptions{}); err != nil {
+			return
+		}
+		jr.Ok = true
+		return
+	}()
 	return nil
 }
 
-func (r *Runner) HealthCheck() {
-	url, _ := url.Parse(r.URL)
-	url.Path = path.Join(url.Path, r.HealthPath)
-	res, err := http.Get(url.String())
-	if err != nil || res.StatusCode != 200 {
-		r.alive = false
-	} else {
-		r.alive = true
-	}
-}
-
-func (r *Runner) Alive() bool {
-	return r.alive
-}
-
-func NewRunnerRegistry(workers int, l *log.Logger) *RunnerRegistry {
+func NewRunnerRegistry(l *log.Logger) *RunnerRegistry {
 	return &RunnerRegistry{
-		m:       new(sync.Mutex),
 		runners: map[*Runner]bool{},
 		store: &CommitStore{
-			repositories: map[string]*Commit{},
+			repositories: map[string]*CommitJob{},
 		},
-		commitQueue: make(chan *Commit),
-		workers:     workers,
-		logger:      l,
-	}
-}
-
-func (registry *RunnerRegistry) Start() {
-	for i := 0; i < registry.workers; i++ {
-		go registry.ForwardToRunner()
-	}
-}
-
-func (registry *RunnerRegistry) Stop() {
-	registry.logger.Println("Stopping registry")
-	close(registry.commitQueue)
-}
-
-func (registry *RunnerRegistry) HealthCheck() {
-	for t, _ := range registry.runners {
-		t.HealthCheck()
+		logger: l,
 	}
 }
 
@@ -137,76 +120,69 @@ func (registry *RunnerRegistry) Runners() map[*Runner]bool {
 }
 
 func (registry *RunnerRegistry) AddRunner(r *Runner) error {
-	registry.m.Lock()
+	registry.Lock()
+	defer registry.Unlock()
 	if _, ok := registry.runners[r]; ok {
-		registry.m.Unlock()
 		return errors.New("Runner already present in the registry")
 	}
+	log.Println("Connecting")
+	client, err := rpc.Dial("tcp", r.Addr)
+	log.Println("Connected")
+	if err != nil {
+		log.Println("Error connecting to runner")
+		return err
+	}
+	r.rpcClient = client
 	registry.runners[r] = true
-	registry.m.Unlock()
+	log.Println("New runner registered")
 	return nil
 }
 
 func (registry *RunnerRegistry) RemoveRunner(r *Runner) {
-	registry.m.Lock()
+	registry.Lock()
 	delete(registry.runners, r)
-	registry.m.Unlock()
+	registry.Unlock()
 }
 
-func (registry *RunnerRegistry) ForwardToRunner() {
-	for {
-		commit, ok := <-registry.commitQueue
-		// poison pill
-		if ok == false {
-			registry.logger.Println("Closing commit queue")
-			return
-		}
-		// Obtain a valid ServerRunner instance, it must be alive, using round robin
-		// to select it
-		var index, i int = 0, 0
-		registry.m.Lock()
-		runners := len(registry.runners)
-		if runners == 0 {
-			registry.m.Unlock()
-			registry.logger.Println("No runners available")
-			continue
-		}
-		keys := make([]*Runner, runners)
-		// Dumbest check to avoid looping forever in case of all dead servers
-		abort := false
-		for k := range registry.runners {
-			if k.Alive() == true {
-				abort = true
-			}
-			keys[i] = k
-			i++
-		}
-		if abort == false {
-			registry.logger.Println("No runners available")
-			// TODO re-enqueue
-			continue
-		}
-		// Round robin
-		for index = registry.current % runners; keys[index].Alive() == false; {
-			index = registry.current % runners
-			registry.current++
-		}
-		registry.m.Unlock()
+func (registry *RunnerRegistry) forwardToRunner(c *CommitJob) {
+	// Obtain a valid ServerRunner instance, it must be alive, using round robin
+	// to select it
+	var index, i int = 0, 0
+	registry.Lock()
+	runners := len(registry.runners)
+	if runners == 0 {
+		registry.Unlock()
+		registry.logger.Println("No runners available")
+		return
+	}
+	keys := make([]*Runner, runners)
+	// Dumbest check to avoid looping forever in case of all dead servers
+	for k := range registry.runners {
+		keys[i] = k
+		i++
+	}
+	// Round robin
+	index = registry.current % runners
+	registry.current++
+	registry.Unlock()
 
-		err := keys[index].Forward(commit)
-		if err != nil {
-			registry.logger.Println(err)
-		}
+	var jobReply CommitJobReply
+	err := keys[index].rpcClient.Call("Runner.ExecuteCommitJob", c, &jobReply)
+	if err != nil {
+		log.Println("Unable to send test to runner")
+	}
+	if err != nil {
+		registry.logger.Println(err)
 	}
 }
 
-func (registry *RunnerRegistry) EnqueueCommit(c *Commit) error {
+func (registry *RunnerRegistry) EnqueueCommit(c *CommitJob) error {
 	if cmt, ok := registry.store.GetCommit(c.Repository.Name); ok {
 		if cmt.Id == c.Id {
 			return errors.New("Commit already executed")
 		}
 	}
 	registry.store.PutCommit(c)
-	registry.commitQueue <- c
+	go registry.forwardToRunner(c)
 	return nil
 }

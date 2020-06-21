@@ -24,35 +24,52 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-package core
+// Commitstore is the domain model of the dispatcher part of the application
+// comprised of Commit, a simple abstraction over what we find useful to
+// describe a commit and a CommitStore, which act as in-memory DB of the
+// repositories tracked and their last processed commit
+
+package runner
 
 import (
-	"context"
-	"github.com/docker/docker/client"
+	"strings"
+	"sync"
 )
 
-const (
-	registry string = "docker.io/library/"
-	image    string = "ubuntu"
-)
-
-type Container interface {
-	RunInContainer(*context.Context, *client.Client) error
+// Temporary database, should be replaced with a real DB, like sqlite
+// Just carry a mapping of repository -> latest commit processed
+type CommitStore struct {
+	sync.Mutex
+	repositories map[string]*CommitJob
 }
 
-func RunContainer(c Container) <-chan error {
-	ch := make(chan error)
-	go func() {
-		defer close(ch)
-		ctx := context.Background()
-		cli, err := client.NewEnvClient()
-		if err != nil {
-			ch <- err
-			return
-		}
-		if err = c.RunInContainer(&ctx, cli); err != nil {
-			ch <- err
-		}
-	}()
-	return ch
+type CommitJob struct {
+	Id         string     `json:"id"`
+	Language   string     `json:"language"`
+	Repository Repository `json:"repository"`
+}
+
+type CommitJobReply struct {
+	Ok bool
+}
+
+func (c *CommitJob) Cmd() ([]string, error) {
+	cmd, err := c.Repository.CloneCommand("/" + c.Id)
+	if err != nil {
+		return nil, err
+	}
+	return strings.Split(cmd, " "), nil
+}
+
+func (cs *CommitStore) PutCommit(c *CommitJob) {
+	cs.Lock()
+	cs.repositories[c.Repository.Name] = c
+	cs.Unlock()
+}
+
+func (cs *CommitStore) GetCommit(repo string) (*CommitJob, bool) {
+	cs.Lock()
+	val, ok := cs.repositories[repo]
+	cs.Unlock()
+	return val, ok
 }

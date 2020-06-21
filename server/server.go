@@ -35,15 +35,19 @@
 //				 dispatcher, its responsibility is to handle execution of tests
 //				 and other instructions, crashes and timeouts are to be
 //				 expected
-package core
+package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"github.com/codepr/narwhal/runner"
 	"log"
+	"net"
 	"net/http"
+	"net/rpc"
 	"os"
 	"os/signal"
-	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -52,9 +56,6 @@ const (
 	Dispatcher = iota
 	TestRunner
 )
-
-// Healthcheck sentinel
-var healthy int32
 
 type Server interface {
 	// Start the server, listening on a host:port tuple
@@ -69,43 +70,30 @@ type DispatcherServer struct {
 	// server is a pointer to a builtin library http.Server, listen on a
 	// host:port tuple and expose some REST APIs
 	server *http.Server
-
 	// Registry just tracks and manage the runner units, each one representing
 	// remote servers located by an URL
-	registry *RunnerRegistry
-
-	// healthcheck_ch is a channel that acts as a helm to managing a periodic
-	// check on health status of each runner
-	healthcheck_ch chan bool
-
-	// healthcheck_timeout define the ticks for the healthcheck calls of each
-	// runner
-	healthcheck_timeout time.Duration
+	//registry *RunnerRegistry
 }
 
 type RunnerServer struct {
-	// server is a pointer to a builtin library http.Server, listen on a
-	// host:port tuple and expose some REST APIs
-	server *http.Server
+	addr          string
+	runner        *runner.Runner
+	dispatcherUrl string
+	quit          chan interface{}
+	// RPC server ref, act as the transport layer
+	rpcServer *rpc.Server
 }
 
-func newDispatcherRouter(r *RunnerRegistry) *http.ServeMux {
+func newDispatcherRouter(r *runner.RunnerRegistry) *http.ServeMux {
 	router := http.NewServeMux()
 	router.Handle("/runner", handleDispatcherRunner(r))
 	router.Handle("/commit", handleDispatcherCommit(r))
 	return router
 }
 
-func newRunnerRouter(l *log.Logger) *http.ServeMux {
-	router := http.NewServeMux()
-	router.Handle("/health", handleRunnerHealth(l))
-	router.Handle("/commit", handleRunnerCommit(l))
-	return router
-}
-
 // Factory function, return a Server instance based on serverType argument
 func NewDispatcherServer(addr string, l *log.Logger,
-	r *RunnerRegistry, ts time.Duration) Server {
+	r *runner.RunnerRegistry) *DispatcherServer {
 	return &DispatcherServer{
 		server: &http.Server{
 			Addr:           addr,
@@ -116,23 +104,14 @@ func NewDispatcherServer(addr string, l *log.Logger,
 			IdleTimeout:    30 * time.Second,
 			MaxHeaderBytes: 1 << 20,
 		},
-		registry:            r,
-		healthcheck_timeout: ts,
-		healthcheck_ch:      make(chan bool),
 	}
 }
 
-func NewTestRunnerServer(addr string, l *log.Logger) Server {
+func NewRunnerServer(addr, dispatcherUrl string) *RunnerServer {
 	return &RunnerServer{
-		server: &http.Server{
-			Addr:           addr,
-			Handler:        logReq(l)(newRunnerRouter(l)),
-			ErrorLog:       l,
-			ReadTimeout:    5 * time.Second,
-			WriteTimeout:   10 * time.Second,
-			IdleTimeout:    30 * time.Second,
-			MaxHeaderBytes: 1 << 20,
-		},
+		addr:          addr,
+		dispatcherUrl: dispatcherUrl,
+		rpcServer:     rpc.NewServer(),
 	}
 }
 
@@ -140,15 +119,12 @@ func (s *DispatcherServer) Run() error {
 	done := make(chan bool)
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	s.registry.Start()
+	// s.registry.Start()
 
 	go func() {
 		<-quit
 		s.server.ErrorLog.Println("Shutdown")
-		// Stop the healthcheck goroutine
-		s.healthcheck_ch <- true
 		// Stop push pushCommit goroutine
-		s.registry.Stop()
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		s.server.SetKeepAlivesEnabled(false)
@@ -157,9 +133,6 @@ func (s *DispatcherServer) Run() error {
 		}
 		close(done)
 	}()
-
-	// Start healthcheck goroutine
-	go s.runnersHealthcheck()
 
 	s.server.ErrorLog.Println("Listening on", s.server.Addr)
 	if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -171,42 +144,48 @@ func (s *DispatcherServer) Run() error {
 }
 
 func (s *RunnerServer) Run() error {
-	done := make(chan bool)
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	done := make(chan interface{})
+	listener, err := net.Listen("tcp", s.addr)
+	s.runner = &runner.Runner{Addr: listener.Addr().String()}
+	s.rpcServer.RegisterName("Runner", s.runner)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("Listening on %v\n", listener.Addr())
 
 	go func() {
-		<-quit
-		s.server.ErrorLog.Println("Shutdown")
-		atomic.StoreInt32(&healthy, 0)
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		s.server.SetKeepAlivesEnabled(false)
-		if err := s.server.Shutdown(ctx); err != nil {
-			s.server.ErrorLog.Fatal("Could not shutdown the server")
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				select {
+				case <-s.quit:
+					listener.Close()
+					close(done)
+					return
+				default:
+					log.Fatal(err)
+				}
+			}
+			log.Print("Connection accepted")
+			go func() {
+				s.rpcServer.ServeConn(conn)
+			}()
 		}
-		close(done)
 	}()
 
-	atomic.StoreInt32(&healthy, 1)
-	s.server.ErrorLog.Println("Listening on", s.server.Addr)
-	if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		s.server.ErrorLog.Println("Unable to bind on", s.server.Addr)
+	// Register to a dispatcher
+	registerBody, err := json.Marshal(map[string]string{
+		"addr": "127.0.0.1:28918",
+	})
+	if err != nil {
+		log.Println(err)
 	}
-
+	resp, err := http.Post(s.dispatcherUrl,
+		"application/json", bytes.NewBuffer(registerBody))
+	if err != nil {
+		log.Println(err)
+	}
+	resp.Body.Close()
 	<-done
 	return nil
-}
-
-func (s *DispatcherServer) runnersHealthcheck() {
-	ticker := time.NewTicker(s.healthcheck_timeout * time.Second)
-	for {
-		select {
-		case <-s.healthcheck_ch:
-			ticker.Stop()
-			return
-		case <-ticker.C:
-			s.registry.HealthCheck()
-		}
-	}
 }

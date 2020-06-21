@@ -24,17 +24,16 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-package core
+package server
 
 import (
 	"encoding/json"
+	"github.com/codepr/narwhal/runner"
 	"log"
 	"net/http"
-	"sync/atomic"
-	"time"
 )
 
-func handleDispatcherCommit(registry *RunnerRegistry) http.HandlerFunc {
+func handleDispatcherCommit(registry *runner.RunnerRegistry) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -48,12 +47,11 @@ func handleDispatcherCommit(registry *RunnerRegistry) http.HandlerFunc {
 			// received commit is elegible for a test-run of it's already been
 			// processed before
 			decoder := json.NewDecoder(r.Body)
-			var c Commit
+			var c runner.CommitJob
 			err := decoder.Decode(&c)
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
 			} else {
-				c.cTime = time.Now()
 				if err := registry.EnqueueCommit(&c); err != nil {
 					w.Header().Set("Content-Type", "application/json")
 					json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
@@ -68,8 +66,9 @@ func handleDispatcherCommit(registry *RunnerRegistry) http.HandlerFunc {
 	}
 }
 
-func handleDispatcherRunner(registry *RunnerRegistry) http.HandlerFunc {
+func handleDispatcherRunner(registry *runner.RunnerRegistry) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		log.Println("WO")
 		switch r.Method {
 		case http.MethodGet:
 			// Return a list of already registered testrunners
@@ -78,11 +77,13 @@ func handleDispatcherRunner(registry *RunnerRegistry) http.HandlerFunc {
 		case http.MethodPost:
 			// Register a new testrunner
 			decoder := json.NewDecoder(r.Body)
-			var s Runner = Runner{alive: true}
+			var s runner.Runner = runner.Runner{}
 			err := decoder.Decode(&s)
 			if err != nil {
+				log.Println(err)
 				w.WriteHeader(http.StatusBadRequest)
 			}
+			log.Println("Registering new runner")
 			if err := registry.AddRunner(&s); err != nil {
 				w.WriteHeader(http.StatusBadRequest)
 			} else {
@@ -91,7 +92,7 @@ func handleDispatcherRunner(registry *RunnerRegistry) http.HandlerFunc {
 		case http.MethodDelete:
 			// Unregister testrunner
 			decoder := json.NewDecoder(r.Body)
-			var s Runner
+			var s runner.Runner
 			err := decoder.Decode(&s)
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
@@ -99,48 +100,9 @@ func handleDispatcherRunner(registry *RunnerRegistry) http.HandlerFunc {
 			registry.RemoveRunner(&s)
 			w.WriteHeader(http.StatusNoContent)
 		default:
+			log.Println("405")
 			// 405 for unwanted HTTP methods
 			w.WriteHeader(http.StatusMethodNotAllowed)
-		}
-	}
-}
-
-func handleRunnerHealth(l *log.Logger) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if atomic.LoadInt32(&healthy) == 1 {
-			w.WriteHeader(http.StatusOK)
-		} else {
-			w.WriteHeader(http.StatusServiceUnavailable)
-		}
-	}
-}
-
-func handleRunnerCommit(l *log.Logger) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodPost:
-			// Only POST is allowed, decode the json payload and check if the
-			// received commit is elegible for a test-run of it's already been
-			// processed before
-			decoder := json.NewDecoder(r.Body)
-			var c Commit
-			err := decoder.Decode(&c)
-			if err != nil {
-				w.WriteHeader(http.StatusBadRequest)
-			} else {
-				c.cTime = time.Now()
-				l.Printf("Running container for repository: %v\n", c.Repository.Name)
-				errCh := RunContainer(&c)
-				if err := <-errCh; err != nil {
-					w.Header().Set("Content-Type", "application/json")
-					json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-				} else {
-					w.WriteHeader(http.StatusOK)
-				}
-			}
-		default:
-			// 400 for unwanted HTTP methods
-			w.WriteHeader(http.StatusBadRequest)
 		}
 	}
 }
