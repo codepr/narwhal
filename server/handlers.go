@@ -29,7 +29,6 @@ package server
 import (
 	"encoding/json"
 	"github.com/codepr/narwhal/runner"
-	"log"
 	"net/http"
 )
 
@@ -68,7 +67,6 @@ func handleDispatcherCommit(registry *runner.RunnerRegistry) http.HandlerFunc {
 
 func handleDispatcherRunner(registry *runner.RunnerRegistry) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		log.Println("WO")
 		switch r.Method {
 		case http.MethodGet:
 			// Return a list of already registered testrunners
@@ -80,10 +78,8 @@ func handleDispatcherRunner(registry *runner.RunnerRegistry) http.HandlerFunc {
 			var s runner.Runner = runner.Runner{}
 			err := decoder.Decode(&s)
 			if err != nil {
-				log.Println(err)
 				w.WriteHeader(http.StatusBadRequest)
 			}
-			log.Println("Registering new runner")
 			if err := registry.AddRunner(&s); err != nil {
 				w.WriteHeader(http.StatusBadRequest)
 			} else {
@@ -100,7 +96,6 @@ func handleDispatcherRunner(registry *runner.RunnerRegistry) http.HandlerFunc {
 			registry.RemoveRunner(&s)
 			w.WriteHeader(http.StatusNoContent)
 		default:
-			log.Println("405")
 			// 405 for unwanted HTTP methods
 			w.WriteHeader(http.StatusMethodNotAllowed)
 		}

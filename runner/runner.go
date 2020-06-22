@@ -76,15 +76,20 @@ func (r *Runner) ExecuteCommitJob(c CommitJob, jr *CommitJobReply) error {
 		ctx := context.Background()
 		cli, err := client.NewEnvClient()
 		if err != nil {
+			jr.Ok = false
 			return
 		}
+		log.Println("Executing commit job")
+		log.Printf("Creating container %s\n", registry+image)
 		// TODO stub
 		_, err = cli.ImagePull(ctx, registry+image, types.ImagePullOptions{})
 		if err != nil {
+			jr.Ok = false
 			return
 		}
 		cmd, err := c.Cmd()
 		if err != nil {
+			jr.Ok = false
 			return
 		}
 		resp, err := cli.ContainerCreate(ctx, &container.Config{
@@ -92,6 +97,7 @@ func (r *Runner) ExecuteCommitJob(c CommitJob, jr *CommitJobReply) error {
 			Cmd:   cmd,
 		}, nil, nil, "")
 		if err != nil {
+			jr.Ok = false
 			return
 		}
 
@@ -125,21 +131,18 @@ func (registry *RunnerRegistry) AddRunner(r *Runner) error {
 	if _, ok := registry.runners[r]; ok {
 		return errors.New("Runner already present in the registry")
 	}
-	log.Println("Connecting")
 	client, err := rpc.Dial("tcp", r.Addr)
-	log.Println("Connected")
 	if err != nil {
-		log.Println("Error connecting to runner")
 		return err
 	}
 	r.rpcClient = client
 	registry.runners[r] = true
-	log.Println("New runner registered")
 	return nil
 }
 
 func (registry *RunnerRegistry) RemoveRunner(r *Runner) {
 	registry.Lock()
+	r.rpcClient.Close()
 	delete(registry.runners, r)
 	registry.Unlock()
 }
