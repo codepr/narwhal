@@ -150,7 +150,10 @@ func (registry *RunnerRegistry) RemoveRunner(r *Runner) {
 func (registry *RunnerRegistry) forwardToRunner(c *CommitJob) {
 	// Obtain a valid ServerRunner instance, it must be alive, using round robin
 	// to select it
-	var index, i int = 0, 0
+	var (
+		index, i int = 0, 0
+		runner   *Runner
+	)
 	registry.Lock()
 	runners := len(registry.runners)
 	if runners == 0 {
@@ -158,19 +161,20 @@ func (registry *RunnerRegistry) forwardToRunner(c *CommitJob) {
 		registry.logger.Println("No runners available")
 		return
 	}
-	keys := make([]*Runner, runners)
-	// Dumbest check to avoid looping forever in case of all dead servers
-	for k := range registry.runners {
-		keys[i] = k
-		i++
-	}
 	// Round robin
 	index = registry.current % runners
 	registry.current++
 	registry.Unlock()
-
+	// Iterate over all registered runners till we find the index positioned one
+	for k := range registry.runners {
+		if i == index {
+			runner = k
+			break
+		}
+		i++
+	}
 	var jobReply CommitJobReply
-	err := keys[index].rpcClient.Call("Runner.ExecuteCommitJob", c, &jobReply)
+	err := runner.rpcClient.Call("Runner.ExecuteCommitJob", c, &jobReply)
 	if err != nil {
 		log.Println("Unable to send test to runner")
 	}
