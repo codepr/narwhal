@@ -57,7 +57,8 @@ type JobSpec struct {
 }
 
 type CommitJobReply struct {
-	Ok bool
+	Ok     bool
+	ErrMsg string
 }
 
 func (c *CommitJob) Cmd() ([]string, error) {

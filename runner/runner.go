@@ -72,11 +72,12 @@ type RunnerRegistry struct {
 }
 
 func (r *Runner) ExecuteCommitJob(c CommitJob, jr *CommitJobReply) error {
+	jr.Ok = false
 	go func() {
 		ctx := context.Background()
 		cli, err := client.NewEnvClient()
 		if err != nil {
-			jr.Ok = false
+			jr.ErrMsg = err.Error()
 			return
 		}
 		log.Println("Executing commit job")
@@ -84,12 +85,12 @@ func (r *Runner) ExecuteCommitJob(c CommitJob, jr *CommitJobReply) error {
 		// TODO stub
 		_, err = cli.ImagePull(ctx, registry+image, types.ImagePullOptions{})
 		if err != nil {
-			jr.Ok = false
+			jr.ErrMsg = err.Error()
 			return
 		}
 		cmd, err := c.Cmd()
 		if err != nil {
-			jr.Ok = false
+			jr.ErrMsg = err.Error()
 			return
 		}
 		resp, err := cli.ContainerCreate(ctx, &container.Config{
@@ -97,12 +98,13 @@ func (r *Runner) ExecuteCommitJob(c CommitJob, jr *CommitJobReply) error {
 			Cmd:   cmd,
 		}, nil, nil, "")
 		if err != nil {
-			jr.Ok = false
+			jr.ErrMsg = err.Error()
 			return
 		}
 
 		if err := cli.ContainerStart(ctx, resp.ID,
 			types.ContainerStartOptions{}); err != nil {
+			jr.ErrMsg = err.Error()
 			return
 		}
 		jr.Ok = true
@@ -176,10 +178,7 @@ func (registry *RunnerRegistry) forwardToRunner(c *CommitJob) {
 	var jobReply CommitJobReply
 	err := runner.rpcClient.Call("Runner.ExecuteCommitJob", c, &jobReply)
 	if err != nil {
-		log.Println("Unable to send test to runner")
-	}
-	if err != nil {
-		registry.logger.Println(err)
+		registry.logger.Println("Unable to send test to runner", err)
 	}
 }
 
