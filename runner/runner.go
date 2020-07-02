@@ -42,10 +42,10 @@ const (
 	image    string = "ubuntu"
 )
 
-// Runner represents a worker unit on the network, it is identified by an URL,
+// RunnerProxy represents a worker unit on the network, it is identified by an URL,
 // a commit-path (usually /commit) and an health-path for the healthcheck
 // calls
-type Runner struct {
+type RunnerProxy struct {
 	Addr      string `json:"addr"`
 	rpcClient *rpc.Client
 }
@@ -59,7 +59,7 @@ type RunnerRegistry struct {
 	// act as an indicator of reachability and thus availability for jobs
 	// or containers to run tests in a safe and isolated environment
 	// easier to reproduce the projects own test/production environments
-	runners map[*Runner]bool
+	runners map[*RunnerProxy]bool
 	// Current is the integer sentinel to be used to select an available
 	// test-runner server to send job to using a round-robin algorithm
 	current int
@@ -71,7 +71,7 @@ type RunnerRegistry struct {
 	logger *log.Logger
 }
 
-func (r *Runner) ExecuteCommitJob(c CommitJob, jr *CommitJobReply) error {
+func (r *RunnerProxy) ExecuteCommitJob(c CommitJob, jr *CommitJobReply) error {
 	reply := make(chan CommitJobReply)
 	go func(r chan CommitJobReply) {
 		ctx := context.Background()
@@ -121,7 +121,7 @@ func (r *Runner) ExecuteCommitJob(c CommitJob, jr *CommitJobReply) error {
 
 func NewRunnerRegistry(l *log.Logger) *RunnerRegistry {
 	return &RunnerRegistry{
-		runners: map[*Runner]bool{},
+		runners: map[*RunnerProxy]bool{},
 		store: &CommitStore{
 			repositories: map[string]*CommitJob{},
 		},
@@ -129,15 +129,15 @@ func NewRunnerRegistry(l *log.Logger) *RunnerRegistry {
 	}
 }
 
-func (registry *RunnerRegistry) Runners() map[*Runner]bool {
+func (registry *RunnerRegistry) RunnerProxys() map[*RunnerProxy]bool {
 	return registry.runners
 }
 
-func (registry *RunnerRegistry) AddRunner(r *Runner) error {
+func (registry *RunnerRegistry) AddRunnerProxy(r *RunnerProxy) error {
 	registry.Lock()
 	defer registry.Unlock()
 	if _, ok := registry.runners[r]; ok {
-		return errors.New("Runner already present in the registry")
+		return errors.New("RunnerProxy already present in the registry")
 	}
 	client, err := rpc.Dial("tcp", r.Addr)
 	if err != nil {
@@ -148,19 +148,19 @@ func (registry *RunnerRegistry) AddRunner(r *Runner) error {
 	return nil
 }
 
-func (registry *RunnerRegistry) RemoveRunner(r *Runner) {
+func (registry *RunnerRegistry) RemoveRunnerProxy(r *RunnerProxy) {
 	registry.Lock()
 	r.rpcClient.Close()
 	delete(registry.runners, r)
 	registry.Unlock()
 }
 
-func (registry *RunnerRegistry) forwardToRunner(c *CommitJob) {
-	// Obtain a valid ServerRunner instance, it must be alive, using round robin
+func (registry *RunnerRegistry) forwardToRunnerProxy(c *CommitJob) {
+	// Obtain a valid ServerRunnerProxy instance, it must be alive, using round robin
 	// to select it
 	var (
 		index, i int = 0, 0
-		runner   *Runner
+		runner   *RunnerProxy
 	)
 	registry.Lock()
 	runners := len(registry.runners)
@@ -182,7 +182,7 @@ func (registry *RunnerRegistry) forwardToRunner(c *CommitJob) {
 		i++
 	}
 	var jobReply CommitJobReply
-	err := runner.rpcClient.Call("Runner.ExecuteCommitJob", c, &jobReply)
+	err := runner.rpcClient.Call("RunnerProxy.ExecuteCommitJob", c, &jobReply)
 	if err != nil {
 		registry.logger.Println("Unable to send test to runner", err)
 	} else {
@@ -201,6 +201,6 @@ func (registry *RunnerRegistry) EnqueueCommit(c *CommitJob) error {
 		}
 	}
 	registry.store.PutCommit(c)
-	go registry.forwardToRunner(c)
+	go registry.forwardToRunnerProxy(c)
 	return nil
 }

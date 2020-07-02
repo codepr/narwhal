@@ -77,7 +77,6 @@ type DispatcherServer struct {
 
 type RunnerServer struct {
 	addr          string
-	runner        *runner.Runner
 	dispatcherUrl string
 	quit          chan interface{}
 	// RPC server ref, act as the transport layer
@@ -146,8 +145,8 @@ func (s *DispatcherServer) Run() error {
 func (s *RunnerServer) Run() error {
 	done := make(chan interface{})
 	listener, err := net.Listen("tcp", s.addr)
-	s.runner = &runner.Runner{Addr: listener.Addr().String()}
-	s.rpcServer.RegisterName("Runner", s.runner)
+	runnerProxy := &runner.RunnerProxy{Addr: listener.Addr().String()}
+	s.rpcServer.RegisterName("RunnerProxy", runnerProxy)
 	if err != nil {
 		log.Fatal(err)
 	}

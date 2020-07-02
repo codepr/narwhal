@@ -71,16 +71,16 @@ func handleDispatcherRunner(registry *runner.RunnerRegistry) http.HandlerFunc {
 		case http.MethodGet:
 			// Return a list of already registered testrunners
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(registry.Runners())
+			json.NewEncoder(w).Encode(registry.RunnerProxys())
 		case http.MethodPost:
 			// Register a new testrunner
 			decoder := json.NewDecoder(r.Body)
-			var s runner.Runner = runner.Runner{}
+			var s runner.RunnerProxy = runner.RunnerProxy{}
 			err := decoder.Decode(&s)
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
 			}
-			if err := registry.AddRunner(&s); err != nil {
+			if err := registry.AddRunnerProxy(&s); err != nil {
 				w.WriteHeader(http.StatusBadRequest)
 			} else {
 				w.WriteHeader(http.StatusOK)
@@ -88,12 +88,12 @@ func handleDispatcherRunner(registry *runner.RunnerRegistry) http.HandlerFunc {
 		case http.MethodDelete:
 			// Unregister testrunner
 			decoder := json.NewDecoder(r.Body)
-			var s runner.Runner
+			var s runner.RunnerProxy
 			err := decoder.Decode(&s)
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
 			}
-			registry.RemoveRunner(&s)
+			registry.RemoveRunnerProxy(&s)
 			w.WriteHeader(http.StatusNoContent)
 		default:
 			// 405 for unwanted HTTP methods

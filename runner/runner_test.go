@@ -31,28 +31,28 @@ package runner
 //	"testing"
 //)
 
-//func newPool() *TestRunnerPool {
+//func newPool() *TestRunnerProxyPool {
 //	ch := make(chan *CommitJob)
-//	return NewTestRunnerPool(ch, &log.Logger{})
+//	return NewTestRunnerProxyPool(ch, &log.Logger{})
 //}
 //
-//func TestNewRunnerPool(t *testing.T) {
+//func TestNewRunnerProxyPool(t *testing.T) {
 //	pool := newPool()
 //	if pool == nil {
-//		t.Errorf("NewTestRunnerPool didn't create a valid object")
+//		t.Errorf("NewTestRunnerProxyPool didn't create a valid object")
 //	}
 //	pool.Stop()
 //}
 //
-//func TestRunnerPoolAddRunner(t *testing.T) {
+//func TestRunnerProxyPoolAddRunnerProxy(t *testing.T) {
 //	pool := newPool()
 //	if pool == nil {
-//		t.Errorf("NewTestRunnerPool didn't create a valid object")
+//		t.Errorf("NewTestRunnerProxyPool didn't create a valid object")
 //	}
-//	testRunner := ServerRunner{"http://localhost:8989", true}
-//	pool.AddRunner(testRunner)
+//	testRunnerProxy := ServerRunnerProxy{"http://localhost:8989", true}
+//	pool.AddRunnerProxy(testRunnerProxy)
 //	if len(pool.runners) == 0 {
-//		t.Errorf("TestRunnerPool.AddRunner didn't work, expected 1 got 0")
+//		t.Errorf("TestRunnerProxyPool.AddRunnerProxy didn't work, expected 1 got 0")
 //	}
 //	pool.Stop()
 //}
