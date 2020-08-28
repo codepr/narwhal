@@ -26,62 +26,12 @@
 
 package backend
 
-import (
-	"log"
-	"net"
-	"net/rpc"
-)
+import "net/rpc"
 
-type RunnerRequest struct {
-	Commit Commit
-}
-
-type RunnerResponse struct {
-	Response string
-}
-
-type Runner struct{}
-
-func (r *Runner) RunCommitJob(req RunnerRequest, res *RunnerResponse) error {
-	res.Response = "OK"
-	return nil
-}
-
-func StartRunner(addr string) error {
-	quit := make(chan interface{})
-	done := make(chan interface{})
-	listener, err := net.Listen("tcp", addr)
-	runnerProxy := &Runner{}
-	rpcServer := rpc.NewServer()
-
-	// Publish Runner proxy object
-	rpcServer.RegisterName("Runner", runnerProxy)
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Printf("Listening on %v\n", listener.Addr())
-
-	// Wait for incoming connections
-	go func() {
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				select {
-				case <-quit:
-					listener.Close()
-					close(done)
-					return
-				default:
-					log.Fatal(err)
-				}
-			}
-			log.Print("Connection accepted")
-			go func() {
-				rpcServer.ServeConn(conn)
-			}()
-		}
-	}()
-
-	<-done
-	return nil
+type RunnerProxy struct {
+	Url        string
+	CommitPath string
+	HealthPath string
+	Alive      bool
+	rpcClient  *rpc.Client
 }
