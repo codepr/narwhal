@@ -28,7 +28,7 @@ package agent
 
 import (
 	. "github.com/codepr/narwhal/backend"
-	"github.com/google/go-github"
+	"github.com/google/go-github/v32/github"
 	"log"
 	"net/http"
 )
@@ -57,18 +57,18 @@ func commitHandler(events chan<- Commit) http.HandlerFunc {
 		switch e := event.(type) {
 		case *github.PushEvent:
 			// Push it into events channel
-			headCommit := github.PushEvent.GetHeadCommit()
-			repo := github.PushEvent.GetRepo()
-			id, timestamp := headCommit.Id, headCommit.Timestamp
+			headCommit := e.GetHeadCommit()
+			repo := e.GetRepo()
+			id, timestamp := headCommit.GetID(), headCommit.Timestamp
 			lang, name, branch := repo.Language, repo.FullName, repo.DefaultBranch
 			commit := Commit{
 				Id:        id,
-				Timestamp: timestamp,
-				Language:  lang,
+				Timestamp: timestamp.Time,
+				Language:  *lang,
 				Repository: Repository{
 					HostingService: GitHub,
-					Name:           name,
-					Branch:         branch,
+					Name:           *name,
+					Branch:         *branch,
 				},
 			}
 			events <- commit

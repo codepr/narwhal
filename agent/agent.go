@@ -30,6 +30,7 @@ import (
 	"context"
 	"encoding/json"
 	. "github.com/codepr/narwhal/backend"
+	. "github.com/codepr/narwhal/middleware"
 	"log"
 	"net/http"
 	"os"
@@ -42,14 +43,20 @@ type Agent struct {
 	commitQueue string
 }
 
+func NewAgent(commitQueue string) *Agent {
+	return &Agent{
+		server:      nil,
+		commitQueue: commitQueue,
+	}
+}
+
 func (a *Agent) Run() {
 
 	// For now we just store our subscribers into a slice
 	logger := log.New(os.Stdout, "agent: ", log.LstdFlags)
 	logger.Println("Agent is starting...")
 
-	mq := AmqpQueue{}
-	mq.url = "amqp://guest:guest@localhost:5672/"
+	mq := NewAmqpQueue("amqp://guest:guest@localhost:5672/", "commits")
 
 	events := make(chan Commit)
 

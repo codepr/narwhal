@@ -24,7 +24,7 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-package agent
+package middleware
 
 import (
 	"github.com/streadway/amqp"
@@ -97,7 +97,7 @@ func (q AmqpQueue) Produce(item []byte) error {
 }
 
 func (q AmqpQueue) Consume(itemChan chan []byte) error {
-	conn, err := amqp.Dial(q.queue)
+	conn, err := amqp.Dial(q.url)
 	if err != nil {
 		return err
 	}

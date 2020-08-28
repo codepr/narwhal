@@ -40,7 +40,18 @@ type RunnerResponse struct {
 	Response string
 }
 
+type HeartBeatRequest struct{}
+
+type HeartBeatResponse struct {
+	Alive bool
+}
+
 type Runner struct{}
+
+func (r *Runner) HeartBeat(req HeartBeatRequest, res *HeartBeatResponse) error {
+	res.Alive = true
+	return nil
+}
 
 func (r *Runner) RunCommitJob(req RunnerRequest, res *RunnerResponse) error {
 	res.Response = "OK"

@@ -29,9 +29,11 @@ package backend
 import "net/rpc"
 
 type RunnerProxy struct {
-	Url        string
-	CommitPath string
-	HealthPath string
-	Alive      bool
-	rpcClient  *rpc.Client
+	Addr      string
+	Alive     bool
+	RpcClient *rpc.Client
+}
+
+func NewRunnerProxy(addr string) *RunnerProxy {
+	return &RunnerProxy{addr, false, nil}
 }
