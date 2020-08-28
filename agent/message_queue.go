@@ -40,6 +40,19 @@ type AmqpQueue struct {
 	durable, deleteUnused, exclusive, noWait bool
 }
 
+type QueueOption func(*AmqpQueue)
+
+func NewAmqpQueue(url, queueName string, opts ...QueueOption) *AmqpQueue {
+	q := &AmqpQueue{
+		url, queueName, false, false, false, false,
+	}
+
+	for _, opt := range opts {
+		opt(q)
+	}
+	return q
+}
+
 // "amqp://guest:guest@localhost:5672/"
 
 func (q AmqpQueue) Produce(item []byte) error {

@@ -24,57 +24,11 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-package agent
+package backend
 
-import (
-	. "github.com/codepr/narwhal/backend"
-	"github.com/google/go-github"
-	"log"
-	"net/http"
-)
-
-func healthCheckHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}
-}
-
-func commitHandler(events chan<- Commit) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		payload, err := github.ValidatePayload(r, []byte("my-secret-key"))
-		if err != nil {
-			log.Printf("error validating request body: err=%s\n", err)
-			return
-		}
-		defer r.Body.Close()
-
-		event, err := github.ParseWebHook(github.WebHookType(r), payload)
-		if err != nil {
-			log.Printf("could not parse webhook: err=%s\n", err)
-			return
-		}
-
-		switch e := event.(type) {
-		case *github.PushEvent:
-			// Push it into events channel
-			headCommit := github.PushEvent.GetHeadCommit()
-			repo := github.PushEvent.GetRepo()
-			id, timestamp := headCommit.Id, headCommit.Timestamp
-			lang, name, branch := repo.Language, repo.FullName, repo.DefaultBranch
-			commit := Commit{
-				Id:        id,
-				Timestamp: timestamp,
-				Language:  lang,
-				Repository: Repository{
-					HostingService: GitHub,
-					Name:           name,
-					Branch:         branch,
-				},
-			}
-			events <- commit
-		default:
-			log.Printf("Ignored event type %s\n", github.WebHookType(r))
-			return
-		}
-	}
+type RunnerProxy struct {
+	Url        string
+	CommitPath string
+	HealthPath string
+	Alive      bool
 }
