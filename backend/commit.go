@@ -24,35 +24,18 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-package core
+// Commitstore is the domain model of the dispatcher part of the application
+// comprised of Commit, a simple abstraction over what we find useful to
+// describe a commit and a CommitStore, which act as in-memory DB of the
+// repositories tracked and their last processed commit
 
-//import (
-//	"log"
-//	"testing"
-//)
+package backend
 
-//func newPool() *TestRunnerPool {
-//	ch := make(chan *CommitJob)
-//	return NewTestRunnerPool(ch, &log.Logger{})
-//}
-//
-//func TestNewRunnerPool(t *testing.T) {
-//	pool := newPool()
-//	if pool == nil {
-//		t.Errorf("NewTestRunnerPool didn't create a valid object")
-//	}
-//	pool.Stop()
-//}
-//
-//func TestRunnerPoolAddRunner(t *testing.T) {
-//	pool := newPool()
-//	if pool == nil {
-//		t.Errorf("NewTestRunnerPool didn't create a valid object")
-//	}
-//	testRunner := ServerRunner{"http://localhost:8989", true}
-//	pool.AddRunner(testRunner)
-//	if len(pool.runners) == 0 {
-//		t.Errorf("TestRunnerPool.AddRunner didn't work, expected 1 got 0")
-//	}
-//	pool.Stop()
-//}
+import "time"
+
+type Commit struct {
+	Id         string     `json:"id"`
+	Timestamp  time.Time  `json:"timestamp"`
+	Language   string     `json:"language"`
+	Repository Repository `json:"repository"`
+}

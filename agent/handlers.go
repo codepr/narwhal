@@ -24,53 +24,58 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-// Commitstore is the domain model of the dispatcher part of the application
-// comprised of Commit, a simple abstraction over what we find useful to
-// describe a commit and a CommitStore, which act as in-memory DB of the
-// repositories tracked and their last processed commit
-
-package core
+package agent
 
 import (
-	"errors"
-	"fmt"
-	"sync"
+	"encoding/json"
+	. "github.com/codepr/narwhal/backend"
+	"github.com/google/go-github"
+	"log"
+	"net/http"
 )
 
-type HostingService string
-
-const (
-	GitHub    HostingService = "github"
-	BitBucket HostingService = "bitbucket"
-	GitLab                   = "gitlab"
-)
-
-type Repository struct {
-	sync.Mutex
-	HostingService HostingService `json:"hosting_service"`
-	Name           string         `json:"name"`
-	Branch         string         `json:"branch"`
-	commitHistory  []*Commit
-}
-
-func (r *Repository) CloneCommand(path string) (string, error) {
-	switch r.HostingService {
-	case GitHub:
-		return fmt.Sprintf("git clone -b %s https://github.com/%s %s",
-			r.Branch, r.Name, path), nil
-	case GitLab:
-		return fmt.Sprintf("git clone -b %s https://gitlab.com/%s %s",
-			r.Branch, r.Name, path), nil
-	case BitBucket:
-		return fmt.Sprintf("git clone -b %s https://bitbucket.com/%s %s",
-			r.Branch, r.Name, path), nil
+func healthCheckHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
 	}
-	return "", errors.New(fmt.Sprintf("%s hosting service not supported",
-		r.HostingService))
 }
 
-func (r *Repository) AddCommit(c *Commit) {
-	r.Lock()
-	r.commitHistory = append(r.commitHistory, c)
-	r.Unlock()
+func commitHandler(events chan<- Commit) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		payload, err := github.ValidatePayload(r, []byte("my-secret-key"))
+		if err != nil {
+			log.Printf("error validating request body: err=%s\n", err)
+			return
+		}
+		defer r.Body.Close()
+
+		event, err := github.ParseWebHook(github.WebHookType(r), payload)
+		if err != nil {
+			log.Printf("could not parse webhook: err=%s\n", err)
+			return
+		}
+
+		switch e := event.(type) {
+		case *github.PushEvent:
+			// Push it into events channel
+			headCommit := github.PushEvent.GetHeadCommit()
+			repo := github.PushEvent.GetRepo()
+			id, timestamp := headCommit.Id, headCommit.Timestamp
+			lang, name, branch := repo.Language, repo.FullName, repo.DefaultBranch
+			commit := Commit{
+				Id:        id,
+				Timestamp: timestamp,
+				Language:  lang,
+				Repository: Repository{
+					HostingService: GitHub,
+					Name:           name,
+					Branch:         branch,
+				},
+			}
+			events <- commit
+		default:
+			log.Printf("Ignored event type %s\n", github.WebHookType(r))
+			return
+		}
+	}
 }

@@ -24,35 +24,20 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-package core
+package agent
 
 import (
-	"context"
-	"github.com/docker/docker/client"
+	"log"
+	"net/http"
 )
 
-const (
-	registry string = "docker.io/library/"
-	image    string = "ubuntu"
-)
-
-type Container interface {
-	RunInContainer(*context.Context, *client.Client) error
-}
-
-func RunContainer(c Container) <-chan error {
-	ch := make(chan error)
-	go func() {
-		defer close(ch)
-		ctx := context.Background()
-		cli, err := client.NewEnvClient()
-		if err != nil {
-			ch <- err
-			return
-		}
-		if err = c.RunInContainer(&ctx, cli); err != nil {
-			ch <- err
-		}
-	}()
-	return ch
+func logging(logger *log.Logger) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer func() {
+				logger.Println(r.Method, r.URL.Path, r.RemoteAddr, r.UserAgent())
+			}()
+			next.ServeHTTP(w, r)
+		})
+	}
 }
