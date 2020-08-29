@@ -1,4 +1,4 @@
-name: Go
+name: CI
 
 on:
   push:
@@ -31,7 +31,7 @@ jobs:
         fi
 
     - name: Build
-      run: go build -v .
+      run: go build -v ./...
 
     - name: Test
-      run: cd core/ && go test -v
+      run: go test -v ./...
