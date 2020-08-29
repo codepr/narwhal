@@ -1,7 +1,7 @@
 Narwhal
 =======
 
-![Go](https://github.com/codepr/narwhal/workflows/Go/badge.svg)
+![CI](https://github.com/codepr/narwhal/workflows/CI/badge.svg)
 
 PoC of a very simple CI system consists of 3 microservices:
 
