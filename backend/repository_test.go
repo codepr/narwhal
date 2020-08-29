@@ -32,9 +32,9 @@ func TestRepositoryCloneCommand(t *testing.T) {
 	repository := Repository{
 		GitHub,
 		"octocat/test",
-		"master",
+		"dev",
 	}
-	expected := "git clone -b master https://github.com/octocat/test /tmp/octocat/test"
+	expected := "git clone -b dev https://github.com/octocat/test /tmp/octocat/test"
 	cloneCmd, err := repository.CloneCommand("/tmp/octocat/test")
 	if err != nil || cloneCmd != expected {
 		t.Errorf("repository.CloneCommand failed: expected %s got %s", expected, cloneCmd)
