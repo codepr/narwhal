@@ -31,4 +31,4 @@ it’s URL to the dispatcher and demanding the job distributions to it.
 
 ### Draft architecture
 
-![draft architecture](draft-architecture.png)
+<center><img src="draft-architecture.png" width=550px alt="Draft architecture"></center>
