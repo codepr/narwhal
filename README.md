@@ -28,3 +28,7 @@ Ideally a bunch of runners should be spread on a peer’s subnet with similar hw
 and each one registers itself to the dispatcher. Beside registering itself,
 another way could very well be to use a load-balancer or a proxy, registering
 it’s URL to the dispatcher and demanding the job distributions to it.
+
+### Draft architecture
+
+![draft architecture](draft-architecture.png)
