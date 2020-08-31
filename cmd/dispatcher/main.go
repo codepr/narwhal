@@ -27,11 +27,15 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	. "github.com/codepr/narwhal/backend"
 )
 
 func main() {
+	var configPath string
+	flag.StringVar(&configPath, "conf", "", "Configuration YAML path")
+	flag.Parse()
 	dispatcher := NewDispatcher("commits", 5000,
 		[]RunnerProxy{*NewRunnerProxy("127.0.0.1:9898")})
 	fmt.Println("Dispatcher start")
