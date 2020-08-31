@@ -51,6 +51,8 @@ func (d *Dispatcher) probeRunner(proxyChan <-chan *RunnerProxy, stopChan <-chan 
 			var req HeartBeatRequest
 			var res HeartBeatResponse
 			proxy.RpcClient.Call("Runner.HeartBeat", req, &res)
+			proxy.Alive = res.Alive
+			log.Printf("Runner status: %s\n", proxy)
 		case <-stopChan:
 			break
 		}
@@ -93,6 +95,7 @@ func (d *Dispatcher) Consume() error {
 					log.Println("Error decoding commit event")
 				} else {
 					// push job to runner through runnerproxy
+					log.Printf("Pushing commit %v to runner\n", commit)
 				}
 			}
 		}(&runner)

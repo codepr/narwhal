@@ -31,4 +31,19 @@ it’s URL to the dispatcher and demanding the job distributions to it.
 
 ### Draft architecture
 
+`Agent` microservice is responsible for subscribing to VC's event notification
+system (for now supporting just GitHub), forwarding every new commit not
+already in processing to a `RabbitMQ` commit queue.
+
+`Dispatcher` microservices is responsible for receiving the commit jobs from
+the queue and forward it to the best `Runner` according to different heuristics
+(could be also handled by a load-balancer and let him do the balancing). This
+microservice is also responsible for continous monitoring of the runners
+through RPC and communicating metrics to another `RabbitMQ` toward a backend
+dedicated webserver (hypotethically the main entry point for a front-end
+application, with also websockets and so on).
+
+`Runner` is the process responsible for cloning of the repository and running
+the process listed in the narwhal.yml file, ideally in docker containers.
+
 <center><img src="draft-architecture.png" width=550px alt="Draft architecture"></center>

@@ -26,12 +26,22 @@
 
 package backend
 
-import "net/rpc"
+import (
+	"fmt"
+	"net/rpc"
+)
 
 type RunnerProxy struct {
 	Addr      string
 	Alive     bool
 	RpcClient *rpc.Client
+}
+
+func (p RunnerProxy) String() string {
+	if p.Alive == true {
+		return fmt.Sprintf("%s: alive", p.Addr)
+	}
+	return fmt.Sprintf("%s: dead", p.Addr)
 }
 
 func NewRunnerProxy(addr string) *RunnerProxy {
