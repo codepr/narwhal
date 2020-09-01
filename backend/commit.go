@@ -34,3 +34,7 @@ type Commit struct {
 	Language   string     `json:"language"`
 	Repository Repository `json:"repository"`
 }
+
+func (c *Commit) GetRepositoryName() string {
+	return c.Repository.Name
+}

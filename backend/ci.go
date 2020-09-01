@@ -51,7 +51,7 @@ type CIConfig struct {
 	} `yaml:"steps"`
 }
 
-func loadFromFile(path string) (*CIConfig, error) {
+func LoadCIConfigFromFile(path string) (*CIConfig, error) {
 	// XXX hardcoded
 	// Set a default image `ubuntu`
 	ciConfig := &CIConfig{ImageName: "ubuntu"}

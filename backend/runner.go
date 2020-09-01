@@ -27,13 +27,19 @@
 package backend
 
 import (
+	"github.com/go-git/go-git/v5"
+	"io/ioutil"
 	"log"
 	"net"
 	"net/rpc"
+	"os"
+	"path"
 )
 
+const TEMPDIR string = "/tmp/"
+
 type RunnerRequest struct {
-	Commit Commit
+	CommitJob Commit
 }
 
 type RunnerResponse struct {
@@ -53,7 +59,39 @@ func (r *Runner) HeartBeat(req HeartBeatRequest, res *HeartBeatResponse) error {
 	return nil
 }
 
+func cloneRepository(name string) (string, error) {
+	// Tempdir to clone the repository
+	dir, err := ioutil.TempDir(TEMPDIR, name)
+	if err != nil {
+		return "", err
+	}
+
+	// Clones the repository into the given dir, just as a normal git clone does
+	_, err = git.PlainClone(dir, false, &git.CloneOptions{
+		URL: path.Join("https://github.com", name),
+	})
+
+	if err != nil {
+		return "", err
+	}
+
+	return dir, nil
+}
+
 func (r *Runner) RunCommitJob(req RunnerRequest, res *RunnerResponse) error {
+	dir, err := cloneRepository(req.CommitJob.GetRepositoryName())
+	if err != nil {
+		return err
+	}
+	// Delete temporary at the end of the execution
+	defer os.RemoveAll(dir)
+
+	// Read CI configuration
+	ciConfig, err := LoadCIConfigFromFile(dir)
+	if err != nil {
+		res.Response = "NOK"
+		return err
+	}
 	res.Response = "OK"
 	return nil
 }
