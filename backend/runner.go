@@ -27,13 +27,23 @@
 package backend
 
 import (
+	"bufio"
+	"context"
+	"fmt"
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
+	docker "github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/go-git/go-git/v5"
+	"io"
 	"io/ioutil"
 	"log"
 	"net"
 	"net/rpc"
 	"os"
 	"path"
+	"strings"
+	"time"
 )
 
 const TEMPDIR string = "/tmp/"
@@ -78,6 +88,63 @@ func cloneRepository(name string) (string, error) {
 	return dir, nil
 }
 
+func createDockerfile(dir, imageName, cmd string, deps []string) error {
+	f, err := os.Create(path.Join(dir, "Dockerfile"))
+	if err != nil {
+		return err
+	}
+	w := bufio.NewWriter(f)
+	dockerfile := fmt.Sprintf("FROM %s\nCOPY . /build\nRUN %s\nCMD %s",
+		imageName, cmd, strings.Join(deps[:], ","))
+	_, err = w.WriteString(dockerfile)
+	if err != nil {
+		return err
+	}
+	w.Flush()
+	return nil
+}
+
+func runContainer(ciConfig *CIConfig) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cli, err := docker.NewEnvClient()
+	if err != nil {
+		panic(err)
+	}
+
+	reader, err := cli.ImagePull(ctx, "docker.io/library/alpine",
+		types.ImagePullOptions{})
+	if err != nil {
+		panic(err)
+	}
+	io.Copy(os.Stdout, reader)
+
+	resp, err := cli.ContainerCreate(ctx, &container.Config{
+		Image: ciConfig.ImageName,
+		Cmd:   []string{"echo", "hello world"},
+		Tty:   false,
+	}, nil, nil, "")
+	if err != nil {
+		panic(err)
+	}
+
+	if err := cli.ContainerStart(ctx, resp.ID, types.ContainerStartOptions{}); err != nil {
+		panic(err)
+	}
+
+	_, err = cli.ContainerWait(ctx, resp.ID)
+	if err != nil {
+		panic(err)
+	}
+
+	out, err := cli.ContainerLogs(ctx, resp.ID, types.ContainerLogsOptions{ShowStdout: true})
+	if err != nil {
+		panic(err)
+	}
+
+	stdcopy.StdCopy(os.Stdout, os.Stderr, out)
+}
+
 func (r *Runner) RunCommitJob(req RunnerRequest, res *RunnerResponse) error {
 	dir, err := cloneRepository(req.CommitJob.GetRepositoryName())
 	if err != nil {
@@ -92,6 +159,8 @@ func (r *Runner) RunCommitJob(req RunnerRequest, res *RunnerResponse) error {
 		res.Response = "NOK"
 		return err
 	}
+	// Create a Dockerfile in the tempdir
+	createDockerfile(dir, ciConfig.ImageName, ciConfig.Steps[0].Cmd, ciConfig.Steps[0].Dependencies)
 	res.Response = "OK"
 	return nil
 }
