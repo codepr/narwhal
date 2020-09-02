@@ -29,13 +29,14 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	. "github.com/codepr/narwhal/backend"
-	. "github.com/codepr/narwhal/middleware"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"time"
+
+	. "github.com/codepr/narwhal/backend"
+	. "github.com/codepr/narwhal/internal"
 )
 
 type Agent struct {

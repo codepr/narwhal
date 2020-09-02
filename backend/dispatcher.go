@@ -28,10 +28,11 @@ package backend
 
 import (
 	"encoding/json"
-	. "github.com/codepr/narwhal/middleware"
 	"log"
 	"net/rpc"
 	"time"
+
+	. "github.com/codepr/narwhal/internal"
 )
 
 type Dispatcher struct {
